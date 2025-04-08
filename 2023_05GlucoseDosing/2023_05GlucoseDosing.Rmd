@@ -1,0 +1,301 @@
+---
+title: "2023_04GlucoseTiming"
+author: "JarrodLaro"
+date: "2025-01-23"
+output: html_document
+---
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(VennDiagram)
+library(UpSetR)
+library(ggvenn)
+library(ggpubr)
+library(rstatix)
+```
+
+______________________________________________________
+
+                Xcalibur Load
+                
+______________________________________________________
+
+
+```{r}
+MayData <- read.csv("C:/Users/jr144/OneDrive - University of Oklahoma/202513C_Methods_Paper/2023_05GlucoseDosing/2023_05GlucoseDosingFormatted.csv", fileEncoding = 'UTF-8-BOM')
+
+MayDataWithNorm <- MayData %>%
+  group_by(Replicate.Name, Molecule) %>%
+  mutate(NormalizedArea = Area / sum(Area)) %>%
+  ungroup()
+
+MayDataWithNorm <- MayDataWithNorm %>%
+  filter(!Dosage %in% c('1mg','5mg'))
+```
+
+MayData <- MayData %>%
+  filter(Precursor.Adduct %in% c("[M-H]", "[MC13-H]", "[MC213-H]"))
+  
+MayData <- MayData %>%
+  filter(Precursor.Adduct %in% c("[M-H]", "[Max-1-H]", "[Max-H]"))
+  
+MayData <- MayData %>%
+  filter(!Timing %in% c('15min') ) %>%
+  filter(!Dosage %in% c('1mg') ) %>%
+  filter(Precursor.Adduct %in% c("[M-H]", "[MC13-H]", "[MC213-H]"))
+  
+MayData <- MayData %>%
+  filter(!Timing %in% c('15min') ) %>%
+  filter(!Dosage %in% c('1mg') ) %>%
+  filter(Precursor.Adduct %in% c("[M-H]", "[Max-1-H]", "[Max-H]"))
+
+MayData <- MayData %>%
+  filter(!Timing %in% c('15min') ) %>%
+  filter(!Dosage %in% c('1mg') )
+__________________________________
+
+12C v 13C
+__________________________________
+
+```{r}
+AprilData12Cv13C <- MayDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12","C13"))
+
+AprilData12Cv13CNonNormalized <- MayDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12", "C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C) %>%
+  summarise(TotalArea = sum(Area), .groups = 'drop')
+
+AprilData12Cv13CNormalized <- MayDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12", "C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop')
+```
+
+__________
+
+Non-normalized
+__________
+
+```{r}
+
+MoleculeList <- c(unique(AprilData12Cv13CNonNormalized$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- AprilData12Cv13CNonNormalized[AprilData12Cv13CNonNormalized$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Area by LabelStatus"),
+      x = "Label Status",
+      y = "Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+
+__________
+
+Normalized
+__________
+
+```{r}
+
+MoleculeList <- c(unique(AprilData12Cv13CNormalized$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- AprilData12Cv13CNormalized[AprilData12Cv13CNormalized$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Label Status",
+      y = "Normalized Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+
+__________________________________
+
+Blank Check
+__________________________________
+```{r}
+
+AprilDataBlankCheckNonNormalized <- MayDataWithNorm %>%
+  filter(X12Cv13C %in% c("C13","Blank")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C) %>%
+  summarise(TotalArea = sum(Area), .groups = 'drop')
+
+```
+__________
+
+Non-normalized
+__________
+
+```{r}
+MoleculeList <- c(unique(AprilDataBlankCheckNonNormalized$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- AprilDataBlankCheckNonNormalized[AprilDataBlankCheckNonNormalized$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Area by LabelStatus"),
+      x = "Label Status",
+      y = "Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+
+______________________________________________
+
+
+   Facial Bleed v Plasma v Blank Unadjusted
+
+
+______________________________________________
+
+```{r}
+MayDataNonnormalizedSum <- MayWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Succinate')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Dosage, Organ) %>%
+  summarise(TotalArea = sum(Area), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13', 'Blank')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Organ %in% c('FacialBleed', 'Plasma', 'Blank'))
+```
+
+```{r}
+
+plot <- ggplot(MayDataNonnormalizedSum, aes(x = Dosage, y = TotalArea, fill = as.factor(Organ))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = Organ), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of All Molecules by Normalized Area by LabelStatus"),
+      x = "Dosage",
+      y = "Normalized Area",
+      fill = "Organ"
+    ) +
+    theme_minimal()
+    print(plot)
+
+```
+```{r}
+
+MoleculeList <- c(unique(MayDataNonnormalizedSum$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- MayDataNonnormalizedSum[MayDataNonnormalizedSum$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Dosage, y = TotalArea, fill = as.factor(Organ))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = Organ), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Dosage",
+      y = "Normalized Area",
+      fill = "Organ"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+______________________________________________
+
+
+       Facial Bleed v Plasma Normalized
+
+
+______________________________________________
+
+```{r}
+MayDataNormalizedSum <- MayWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Succinate')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Dosage, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Organ %in% c('FacialBleed', 'Plasma'))
+```
+
+```{r}
+
+plot <- ggplot(MayDataNormalizedSum, aes(x = Dosage, y = TotalArea, fill = as.factor(Organ))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = Organ), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of All Molecules by Normalized Area by LabelStatus"),
+      x = "Dosage",
+      y = "Normalized Area",
+      fill = "Organ"
+    ) +
+    theme_minimal()
+    print(plot)
+
+```
+
+
+```{r}
+
+MoleculeList <- c(unique(MayDataNormalizedSum$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- MayDataNormalizedSum[MayDataNormalizedSum$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Dosage, y = TotalArea, fill = as.factor(Organ))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = Organ), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Dosage",
+      y = "Normalized Area",
+      fill = "Organ"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```

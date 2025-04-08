@@ -1,0 +1,1796 @@
+---
+title: "2023_04GlucoseTiming"
+author: "JarrodLaro"
+date: "2025-01-23"
+output: html_document
+---
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(VennDiagram)
+library(UpSetR)
+library(ggvenn)
+library(ggpubr)
+library(rstatix)
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+```
+
+
+______________________________________________________
+
+                Xcalibur Load
+                
+______________________________________________________
+
+
+```{r}
+NovemberData <- read.csv("C:/Users/NewJarrod/OneDrive - University of Oklahoma/202513C_Methods_Paper/2023_11PrecursorTest/2023_11PrecursorTestFormatted.csv", fileEncoding = 'UTF-8-BOM')
+
+NovemberData$Organ[NovemberData$Organ == "UpperHeart"] <- "Heart"
+NovemberData$Organ[NovemberData$Organ == "RightKidney"] <- "Kidney"
+
+NovemberDataWithNorm <- NovemberData %>%
+  group_by(Replicate.Name, Molecule) %>%
+  filter(!Precursor %in% c("Palmitate")) %>%
+  mutate(NormalizedArea = Area / sum(Area)) %>%
+  filter(!Organ %in% c("LowerHeart")) %>%
+  ungroup()
+
+
+```
+
+__________________________________
+
+12C v 13C
+__________________________________
+
+______
+Glucose IP
+_____
+
+All good, but aKG has some spread
+
+```{r}
+
+NovemberData12Cv13CGlucoseIP <- NovemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12", "C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(Precursor %in% c("Glucose")) %>%
+  filter(Route %in% c("IP"))
+```
+
+
+```{r}
+
+MoleculeList <- c(unique(NovemberData12Cv13CGlucoseIP$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- NovemberData12Cv13CGlucoseIP[NovemberData12Cv13CGlucoseIP$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = as.factor(Organ), group = X12Cv13C),
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1.25, 
+                alpha = 0.65) +
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Label Status",
+      y = "Normalized Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+```{r}
+GlucoseComparison <- NovemberDataWithNorm %>%
+  filter(!Molecule %in% c('aKG', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Organ, Route) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Precursor %in% c("Glucose"))
+
+p_value_results <- data.frame(
+  Molecule = character(),
+  Organ = character(),
+  Test = character(),
+  P_Value = numeric(),
+  Fold_Change = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (molecule in unique(GlucoseComparison$Molecule)) {
+  for (organ in unique(GlucoseComparison$Organ)) {
+    
+    # Extract TotalArea values for both fasting lengths
+    total_area_IP <- GlucoseComparison[
+      GlucoseComparison$Molecule == molecule & 
+      GlucoseComparison$Organ == organ & 
+      GlucoseComparison$Route == "IP", ]$TotalArea
+    
+    total_area_Oral <- GlucoseComparison[
+      GlucoseComparison$Molecule == molecule & 
+      GlucoseComparison$Organ == organ & 
+      GlucoseComparison$Route == "Oral", ]$TotalArea
+    
+    # Perform Shapiro-Wilk normality test
+    normalcyIP <- shapiro.test(total_area_IP)$p.value
+    normalcyOral <- shapiro.test(total_area_Oral)$p.value
+    
+    # Choose the appropriate test based on normality
+    if (normalcyIP < 0.05 | normalcyOral < 0.05) {
+      test_used <- "Wilcoxon"
+      p_val <- wilcox.test(total_area_IP, total_area_Oral)$p.value
+      foldChange <- median(total_area_IP)/median(total_area_Oral)
+    } else {
+      test_used <- "T-test"
+      p_val <- t.test(total_area_IP, total_area_Oral)$p.value
+      foldChange <- median(total_area_IP)/median(total_area_Oral)
+    }
+    
+    # Append results to the dataframe
+    p_value_results <- rbind(p_value_results, data.frame(
+      Molecule = molecule,
+      Organ = organ,
+      Test = test_used,
+      P_Value = p_val,
+      Fold_Change = foldChange,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+# Print the final dataframe with results
+print(p_value_results)
+
+write.csv(p_value_results, "GlucoseIPvOral.csv")
+```
+______
+Glucose Oral
+_____
+
+All good, but aKG has some spread
+
+```{r}
+NovemberData12Cv13CGlucoseOral <- NovemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12", "C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(Precursor %in% c("Glucose")) %>%
+  filter(Route %in% c("Oral"))
+
+GlutamineCheck <- NovemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12", "C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  summarise(TotalArea = sum(Area), .groups = 'drop') %>%
+  filter(Precursor %in% c("Glucose")) %>%
+  filter(Molecule %in% c("Glutamine")) %>%
+  filter(Route %in% c("IP"))
+```
+
+
+```{r}
+
+MoleculeList <- c(unique(NovemberData12Cv13CGlucoseOral$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- NovemberData12Cv13CGlucoseOral[NovemberData12Cv13CGlucoseOral$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = as.factor(Organ), group = X12Cv13C),
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1.25, 
+                alpha = 0.65) +
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Label Status",
+      y = "Normalized Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+
+```
+
+
+______
+Lactate IP
+_____
+
+aKG not significant
+
+```{r}
+
+NovemberData12Cv13CLactateIP <- NovemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12", "C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(Precursor %in% c("Lactate")) %>%
+  filter(Route %in% c("IP"))
+```
+
+
+```{r}
+
+MoleculeList <- c(unique(NovemberData12Cv13CLactateIP$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- NovemberData12Cv13CLactateIP[NovemberData12Cv13CLactateIP$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = as.factor(Organ), group = X12Cv13C),
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1.25, 
+                alpha = 0.65) +
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Label Status",
+      y = "Normalized Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+```{r}
+LactateComparison <- NovemberDataWithNorm %>%
+  filter(!Molecule %in% c('aKG', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Organ, Route) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Precursor %in% c("Lactate"))
+
+p_value_results <- data.frame(
+  Molecule = character(),
+  Organ = character(),
+  Test = character(),
+  P_Value = numeric(),
+  Fold_Change = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (molecule in unique(LactateComparison$Molecule)) {
+  for (organ in unique(LactateComparison$Organ)) {
+    
+    # Extract TotalArea values for both fasting lengths
+    total_area_IP <- LactateComparison[
+      LactateComparison$Molecule == molecule & 
+      LactateComparison$Organ == organ & 
+      LactateComparison$Route == "IP", ]$TotalArea
+    
+    total_area_Oral <- LactateComparison[
+      LactateComparison$Molecule == molecule & 
+      LactateComparison$Organ == organ & 
+      LactateComparison$Route == "Oral", ]$TotalArea
+    
+    # Perform Shapiro-Wilk normality test
+    normalcyIP <- shapiro.test(total_area_IP)$p.value
+    normalcyOral <- shapiro.test(total_area_Oral)$p.value
+    
+    # Choose the appropriate test based on normality
+    if (normalcyIP < 0.05 | normalcyOral < 0.05) {
+      test_used <- "Wilcoxon"
+      p_val <- wilcox.test(total_area_IP, total_area_Oral)$p.value
+      foldChange <- median(total_area_IP)/median(total_area_Oral)
+    } else {
+      test_used <- "T-test"
+      p_val <- t.test(total_area_IP, total_area_Oral)$p.value
+      foldChange <- median(total_area_IP)/median(total_area_Oral)
+    }
+    
+    # Append results to the dataframe
+    p_value_results <- rbind(p_value_results, data.frame(
+      Molecule = molecule,
+      Organ = organ,
+      Test = test_used,
+      P_Value = p_val,
+      Fold_Change = foldChange,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+# Print the final dataframe with results
+print(p_value_results)
+
+write.csv(p_value_results, "LactateIPvOral.csv")
+```
+
+
+______
+Lactate Oral
+_____
+
+F6P and aKG both pretty bad
+
+```{r}
+NovemberData12Cv13CLactateOral <- NovemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12", "C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(Precursor %in% c("Lactate")) %>%
+  filter(Route %in% c("Oral"))
+```
+
+
+```{r}
+
+MoleculeList <- c(unique(NovemberData12Cv13CLactateOral$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- NovemberData12Cv13CLactateOral[NovemberData12Cv13CLactateOral$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = as.factor(Organ), group = X12Cv13C),
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1.25, 
+                alpha = 0.65) +
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Label Status",
+      y = "Normalized Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+
+```
+
+
+
+______
+Palmitate IP
+_____
+
+Nothing significant 
+
+```{r}
+
+NovemberData12Cv13CPalmitateIP <- NovemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12", "C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(Precursor %in% c("Palmitate")) %>%
+  filter(Route %in% c("IP"))
+```
+
+
+```{r}
+
+MoleculeList <- c(unique(NovemberData12Cv13CPalmitateIP$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- NovemberData12Cv13CPalmitateIP[NovemberData12Cv13CPalmitateIP$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = as.factor(Organ), group = X12Cv13C),
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1.25, 
+                alpha = 0.65) +
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Label Status",
+      y = "Normalized Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+
+______
+Palmitate Oral
+_____
+
+Some significance, but difference is underwhelming
+
+```{r}
+NovemberData12Cv13CPalmitateOral <- NovemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12", "C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(Precursor %in% c("Palmitate")) %>%
+  filter(Route %in% c("Oral"))
+```
+
+
+```{r}
+
+MoleculeList <- c(unique(NovemberData12Cv13CPalmitateOral$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- NovemberData12Cv13CPalmitateOral[NovemberData12Cv13CPalmitateOral$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = as.factor(Organ), group = X12Cv13C),
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1.25, 
+                alpha = 0.65) +
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Label Status",
+      y = "Normalized Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+
+
+______
+Pyruvate IP
+_____
+
+ F6P not significant. aKG has larger spread
+
+```{r}
+
+NovemberData12Cv13CPyruvateIP <- NovemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12", "C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(Precursor %in% c("Pyruvate")) %>%
+  filter(Route %in% c("IP"))
+```
+
+
+```{r}
+
+MoleculeList <- c(unique(NovemberData12Cv13CPyruvateIP$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- NovemberData12Cv13CPyruvateIP[NovemberData12Cv13CPyruvateIP$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = as.factor(Organ), group = X12Cv13C),
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1.25, 
+                alpha = 0.65) +
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Label Status",
+      y = "Normalized Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+```{r}
+PyruvateComparison <- NovemberDataWithNorm %>%
+  filter(!Molecule %in% c('aKG', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Organ, Route) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Precursor %in% c("Pyruvate"))
+
+p_value_results <- data.frame(
+  Molecule = character(),
+  Organ = character(),
+  Test = character(),
+  P_Value = numeric(),
+  Fold_Change = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (molecule in unique(PyruvateComparison$Molecule)) {
+  for (organ in unique(PyruvateComparison$Organ)) {
+    
+    # Extract TotalArea values for both fasting lengths
+    total_area_IP <- PyruvateComparison[
+      PyruvateComparison$Molecule == molecule & 
+      PyruvateComparison$Organ == organ & 
+      PyruvateComparison$Route == "IP", ]$TotalArea
+    
+    total_area_Oral <- PyruvateComparison[
+      PyruvateComparison$Molecule == molecule & 
+      PyruvateComparison$Organ == organ & 
+      PyruvateComparison$Route == "Oral", ]$TotalArea
+    
+    # Perform Shapiro-Wilk normality test
+    normalcyIP <- shapiro.test(total_area_IP)$p.value
+    normalcyOral <- shapiro.test(total_area_Oral)$p.value
+    
+    # Choose the appropriate test based on normality
+    if (normalcyIP < 0.05 | normalcyOral < 0.05) {
+      test_used <- "Wilcoxon"
+      p_val <- wilcox.test(total_area_IP, total_area_Oral)$p.value
+      foldChange <- median(total_area_IP)/median(total_area_Oral)
+    } else {
+      test_used <- "T-test"
+      p_val <- t.test(total_area_IP, total_area_Oral)$p.value
+      foldChange <- median(total_area_IP)/median(total_area_Oral)
+    }
+    
+    # Append results to the dataframe
+    p_value_results <- rbind(p_value_results, data.frame(
+      Molecule = molecule,
+      Organ = organ,
+      Test = test_used,
+      P_Value = p_val,
+      Fold_Change = foldChange,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+# Print the final dataframe with results
+print(p_value_results)
+
+write.csv(p_value_results, "PyruvateIPvOral.csv")
+```
+______
+Pyruvate Oral
+_____
+
+F6P is bad. aKG has spread
+
+```{r}
+NovemberData12Cv13CPyruvateOral <- NovemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12", "C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(Precursor %in% c("Pyruvate")) %>%
+  filter(Route %in% c("Oral"))
+```
+
+
+```{r}
+
+MoleculeList <- c(unique(NovemberData12Cv13CPyruvateOral$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- NovemberData12Cv13CPyruvateOral[NovemberData12Cv13CPyruvateOral$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = as.factor(Organ), group = X12Cv13C),
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1.25, 
+                alpha = 0.65) +
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Label Status",
+      y = "Normalized Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+
+```
+
+
+Overall takeaway is that F6P and aKG should probably be ignored. Palmitate labeling poor and should probably be excluded
+
+__________________________________
+
+Comparison between IP precursor
+__________________________________
+
+
+```{r}
+GlucosevLactateComparison <- NovemberDataWithNorm %>%
+  filter(!Molecule %in% c('aKG', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Organ, Route) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Precursor %in% c("Glucose", "Lactate")) %>%
+  filter(Route %in% c("IP"))
+
+p_value_results <- data.frame(
+  Molecule = character(),
+  Organ = character(),
+  Test = character(),
+  P_Value = numeric(),
+  Fold_Change = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (molecule in unique(GlucosevLactateComparison$Molecule)) {
+  for (organ in unique(GlucosevLactateComparison$Organ)) {
+    
+    # Extract TotalArea values for both fasting lengths
+    total_area_Glucose <- GlucosevLactateComparison[
+      GlucosevLactateComparison$Molecule == molecule & 
+      GlucosevLactateComparison$Organ == organ & 
+      GlucosevLactateComparison$Precursor == "Glucose", ]$TotalArea
+    
+    total_area_Lactate <- GlucosevLactateComparison[
+      GlucosevLactateComparison$Molecule == molecule & 
+      GlucosevLactateComparison$Organ == organ & 
+      GlucosevLactateComparison$Precursor == "Lactate", ]$TotalArea
+    
+    # Perform Shapiro-Wilk normality test
+    normalcyGlucose <- shapiro.test(total_area_Glucose)$p.value
+    normalcyLactate <- shapiro.test(total_area_Lactate)$p.value
+    
+    # Choose the appropriate test based on normality
+    if (normalcyGlucose < 0.05 | normalcyLactate < 0.05) {
+      test_used <- "Wilcoxon"
+      p_val <- wilcox.test(total_area_Glucose, total_area_Lactate)$p.value
+      foldChange <- median(total_area_Glucose)/median(total_area_Lactate)
+    } else {
+      test_used <- "T-test"
+      p_val <- t.test(total_area_Glucose, total_area_Lactate)$p.value
+      foldChange <- median(total_area_Glucose)/median(total_area_Lactate)
+    }
+    
+    # Append results to the dataframe
+    p_value_results <- rbind(p_value_results, data.frame(
+      Molecule = molecule,
+      Organ = organ,
+      Test = test_used,
+      P_Value = p_val,
+      Fold_Change = foldChange,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+# Print the final dataframe with results
+print(p_value_results)
+
+write.csv(p_value_results, "GlucosevLactate.csv")
+```
+
+```{r}
+GlucosevPyruvateComparison <- NovemberDataWithNorm %>%
+  filter(!Molecule %in% c('aKG', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Organ, Route) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Precursor %in% c("Glucose", "Pyruvate")) %>%
+  filter(Route %in% c("IP"))
+
+p_value_results <- data.frame(
+  Molecule = character(),
+  Organ = character(),
+  Test = character(),
+  P_Value = numeric(),
+  Fold_Change = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (molecule in unique(GlucosevPyruvateComparison$Molecule)) {
+  for (organ in unique(GlucosevPyruvateComparison$Organ)) {
+    
+    # Extract TotalArea values for both fasting lengths
+    total_area_Glucose <- GlucosevPyruvateComparison[
+      GlucosevPyruvateComparison$Molecule == molecule & 
+      GlucosevPyruvateComparison$Organ == organ & 
+      GlucosevPyruvateComparison$Precursor == "Glucose", ]$TotalArea
+    
+    total_area_Pyruvate <- GlucosevPyruvateComparison[
+      GlucosevPyruvateComparison$Molecule == molecule & 
+      GlucosevPyruvateComparison$Organ == organ & 
+      GlucosevPyruvateComparison$Precursor == "Pyruvate", ]$TotalArea
+    
+    # Perform Shapiro-Wilk normality test
+    normalcyGlucose <- shapiro.test(total_area_Glucose)$p.value
+    normalcyPyruvate <- shapiro.test(total_area_Pyruvate)$p.value
+    
+    # Choose the appropriate test based on normality
+    if (normalcyGlucose < 0.05 | normalcyPyruvate < 0.05) {
+      test_used <- "Wilcoxon"
+      p_val <- wilcox.test(total_area_Glucose, total_area_Pyruvate)$p.value
+      foldChange <- median(total_area_Glucose)/median(total_area_Pyruvate)
+    } else {
+      test_used <- "T-test"
+      p_val <- t.test(total_area_Glucose, total_area_Pyruvate)$p.value
+      foldChange <- median(total_area_Glucose)/median(total_area_Pyruvate)
+    }
+    
+    # Append results to the dataframe
+    p_value_results <- rbind(p_value_results, data.frame(
+      Molecule = molecule,
+      Organ = organ,
+      Test = test_used,
+      P_Value = p_val,
+      Fold_Change = foldChange,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+# Print the final dataframe with results
+print(p_value_results)
+
+write.csv(p_value_results, "GlucosevPyruvate.csv")
+```
+
+
+```{r}
+LactatevPyruvateComparison <- NovemberDataWithNorm %>%
+  filter(!Molecule %in% c('aKG', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Organ, Route) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Precursor %in% c("Pyruvate", "Lactate")) %>%
+  filter(Route %in% c("IP"))
+
+p_value_results <- data.frame(
+  Molecule = character(),
+  Organ = character(),
+  Test = character(),
+  P_Value = numeric(),
+  Fold_Change = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (molecule in unique(LactatevPyruvateComparison$Molecule)) {
+  for (organ in unique(LactatevPyruvateComparison$Organ)) {
+    
+    # Extract TotalArea values for both fasting lengths
+    total_area_Pyruvate <- LactatevPyruvateComparison[
+      LactatevPyruvateComparison$Molecule == molecule & 
+      LactatevPyruvateComparison$Organ == organ & 
+      LactatevPyruvateComparison$Precursor == "Pyruvate", ]$TotalArea
+    
+    total_area_Lactate <- LactatevPyruvateComparison[
+      LactatevPyruvateComparison$Molecule == molecule & 
+      LactatevPyruvateComparison$Organ == organ & 
+      LactatevPyruvateComparison$Precursor == "Lactate", ]$TotalArea
+    
+    # Perform Shapiro-Wilk normality test
+    normalcyLactate <- shapiro.test(total_area_Lactate)$p.value
+    normalcyPyruvate <- shapiro.test(total_area_Pyruvate)$p.value
+    
+    # Choose the appropriate test based on normality
+    if (normalcyLactate < 0.05 | normalcyPyruvate < 0.05) {
+      test_used <- "Wilcoxon"
+      p_val <- wilcox.test(total_area_Lactate, total_area_Pyruvate)$p.value
+      foldChange <- median(total_area_Lactate)/median(total_area_Pyruvate)
+    } else {
+      test_used <- "T-test"
+      p_val <- t.test(total_area_Lactate, total_area_Pyruvate)$p.value
+      foldChange <- median(total_area_Lactate)/median(total_area_Pyruvate)
+    }
+    
+    # Append results to the dataframe
+    p_value_results <- rbind(p_value_results, data.frame(
+      Molecule = molecule,
+      Organ = organ,
+      Test = test_used,
+      P_Value = p_val,
+      Fold_Change = foldChange,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+# Print the final dataframe with results
+print(p_value_results)
+
+write.csv(p_value_results, "LactatevPyruvate.csv")
+```
+
+__________________________________
+
+Heart Comparison
+__________________________________
+
+```{r}
+NovemberDataHeartSamples <- NovemberDataWithNorm %>%
+  filter(!Molecule %in% c('F6P', 'aKG')) %>%
+  filter(X12Cv13C %in% c("C13")) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  filter(Organ %in% c("UpperHeart", "LowerHeart")) %>%
+  filter(Route %in% c("IP")) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop')
+```
+
+
+
+```{r}
+
+PrecursorList <- c(unique(NovemberDataHeartSamples$Precursor))
+for (precursor in PrecursorList){
+  print(precursor)
+  temp <- NovemberDataHeartSamples[NovemberDataHeartSamples$Precursor == precursor,]
+  
+  plot <- ggplot(temp, aes(x = Molecule, y = TotalArea, fill = as.factor(Organ))) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+      geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(Organ)),  # Ensure proper grouping
+                  position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                  size = 1, 
+                  alpha = 0.5) +
+      stat_compare_means(aes(group = Organ), 
+                         method = "wilcox.test", 
+                         label = "p.format",
+                         size = 5) +
+      labs(
+        x = "Dosage",
+        y = "Normalized Area",
+        color = "Molecule"
+      ) +
+    theme_set(theme_bw() + theme_custom) +
+    ylim(0,1.05) +
+    scale_color_brewer(palette = "Dark2") +  
+    scale_fill_brewer(palette = "Pastel1") +
+    #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+    theme(
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 14),        # Size for axis labels
+      legend.text = element_text(size = 16)       # Size for legend labels
+    )
+  print(plot)
+}
+```
+
+No significant differences
+
+
+__________________________________
+
+Effect of vehicle - IP
+__________________________________
+```{r}
+NovemberDataIPVehNonNormalized <- NovemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12","Veh")) %>%
+  filter(!Molecule %in% c('aKG', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  filter(Labeling %in% c('Unlabeled')) %>%
+  filter(Route %in% c('IP')) %>%
+#  filter(Organ %in% c("UpperHeart")) %>%
+  summarise(TotalArea = sum(Area), .groups = 'drop')
+
+
+NovemberDataIPVehNormalized <- NovemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12","Veh")) %>%
+  filter(!Molecule %in% c('aKG', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  filter(Labeling %in% c('Unlabeled')) %>%
+  filter(Route %in% c('IP')) %>%
+#  filter(Organ %in% c("Plasma")) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop')
+
+```
+__________
+
+Non-normalized
+__________
+
+
+```{r}
+
+
+plot <- ggplot(NovemberDataIPVehNonNormalized, aes(x = Organ, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = Molecule, group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 4, 
+                alpha = 0.65) +
+#    stat_compare_means(aes(group = X12Cv13C), method = "wilcox.test", label = "p.format",size = 5) +
+    labs(
+      y = "Signal Intensity",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c("#87878a", 'transparent')) +
+  guides(fill = "none",color = guide_legend(title = "Molecule"),Timing = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 24),  
+    legend.position = "none"      
+  )
+
+plot(plot)
+
+ggsave("NonNormalizedIPVehicleEffects.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+
+```
+
+
+```{r}
+OrganList <- c(unique(NovemberDataIPVehNonNormalized$Organ))
+for (organ in OrganList){
+  print(organ)
+  temp <- NovemberDataIPVehNonNormalized[NovemberDataIPVehNonNormalized$Organ == organ,]
+  
+  plot <- ggplot(temp, aes(x = Molecule, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , organ, " Area by LabelStatus"),
+      x = "Label Status",
+      y = "Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+```{r}
+p_value_results <- data.frame(
+  Molecule = character(),
+  Organ = character(),
+  Test = character(),
+  P_Value = numeric(),
+  Fold_Change = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (molecule in unique(NovemberDataIPVehNormalized$Molecule)) {
+  for (organ in unique(NovemberDataIPVehNonNormalized$Organ)) {
+    
+    # Extract TotalArea values for both fasting lengths
+    total_area_C12 <- NovemberDataIPVehNonNormalized[
+      NovemberDataIPVehNonNormalized$Molecule == molecule & 
+      NovemberDataIPVehNonNormalized$Organ == organ & 
+      NovemberDataIPVehNonNormalized$X12Cv13C == "C12", ]$TotalArea
+    
+    total_area_Veh <- NovemberDataIPVehNonNormalized[
+      NovemberDataIPVehNonNormalized$Molecule == molecule & 
+      NovemberDataIPVehNonNormalized$Organ == organ & 
+      NovemberDataIPVehNonNormalized$X12Cv13C == "Veh", ]$TotalArea
+    
+    # Perform Shapiro-Wilk normality test
+    normalcyC12 <- shapiro.test(total_area_C12)$p.value
+    normalcyVeh <- shapiro.test(total_area_Veh)$p.value
+    
+    # Choose the appropriate test based on normality
+    if (normalcyC12 < 0.05 | normalcyVeh < 0.05) {
+      test_used <- "Wilcoxon"
+      p_val <- wilcox.test(total_area_C12, total_area_Veh)$p.value
+      foldChange <- median(total_area_C12)/median(total_area_Veh)
+    } else {
+      test_used <- "T-test"
+      p_val <- t.test(total_area_C12, total_area_Veh)$p.value
+      foldChange <- median(total_area_C12)/median(total_area_Veh)
+    }
+    
+    # Append results to the dataframe
+    p_value_results <- rbind(p_value_results, data.frame(
+      Molecule = molecule,
+      Organ = organ,
+      Test = test_used,
+      P_Value = p_val,
+      Fold_Change = foldChange,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+# Print the final dataframe with results
+print(p_value_results)
+
+write.csv(p_value_results, "IPVeh.csv")
+```
+
+
+
+__________
+
+Normalized
+__________
+
+```{r}
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+
+
+plot <- ggplot(NovemberDataIPVehNormalized, aes(x = Molecule, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = Molecule, group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 2, 
+                alpha = 0.65) +
+    stat_compare_means(aes(group = X12Cv13C), method = "wilcox.test", label = "p.format",size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Normalized Area",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c('transparent', "#87878a")) +
+#  guides(fill = "none",color = guide_legend(title = "Molecule"),Timing = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+#    axis.text.x = element_blank(),
+#    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 20),  
+    legend.position = "none"      
+  )
+
+plot(plot)
+```
+ggsave("NormalizedPlasmaVehicleEffects.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+
+```{r}
+OrganList <- c(unique(NovemberDataIPVehNormalized$Organ))
+for (organ in OrganList){
+  print(organ)
+  temp <- NovemberDataIPVehNormalized[NovemberDataIPVehNormalized$Organ == organ,]
+  
+  plot <- ggplot(temp, aes(x = Molecule, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = Molecule, group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 2, 
+                alpha = 0.65) +
+    stat_compare_means(aes(group = X12Cv13C), method = "wilcox.test", label = "p.format",size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Normalized Area",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c('transparent', "#87878a")) +
+#  guides(fill = "none",color = guide_legend(title = "Molecule"),Timing = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+#    axis.text.x = element_blank(),
+#    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 20),  
+    legend.position = "none"      
+  )
+  plot(plot)
+}
+```
+
+Overall takeaway is that IP vehicle still has no effect
+
+
+__________________________________
+
+Effect of vehicle - Oral
+__________________________________
+```{r}
+NovemberDataOralVehNonNormalized <- NovemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12","Veh")) %>%
+  filter(!Molecule %in% c('aKG', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  filter(Labeling %in% c('Unlabeled')) %>%
+  filter(Route %in% c('Oral')) %>%
+#  filter(Organ %in% c("Plasma")) %>%
+  summarise(TotalArea = sum(Area), .groups = 'drop')
+
+
+NovemberDataOralVehNormalized <- NovemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12","Veh")) %>%
+  filter(!Molecule %in% c('aKG', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  filter(Labeling %in% c('Unlabeled')) %>%
+  filter(Route %in% c('Oral')) %>%
+#  filter(Organ %in% c("Plasma")) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop')
+
+```
+__________
+
+Non-normalized
+__________
+
+
+```{r}
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+
+
+plot <- ggplot(NovemberDataOralVehNonNormalized, aes(x = Organ, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = Molecule, group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 4, 
+                alpha = 0.65) +
+    #stat_compare_means(aes(group = X12Cv13C), method = "wilcox.test", label = "p.format",size = 5) +
+    labs(
+      y = "Signal Intensity",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  guides(fill = "none",color = guide_legend(title = "Organ"),Timing = "none")  +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c('transparent', "#87878a")) +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 24),  
+    legend.position = "none" 
+  )
+
+plot(plot)
+
+ggsave("NonNormalizedOralVehicleEffects.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+```
+
+
+```{r}
+OrganList <- c(unique(NovemberDataOralVehNonNormalized$Organ))
+for (organ in OrganList){
+  print(organ)
+  temp <- NovemberDataOralVehNonNormalized[NovemberDataOralVehNonNormalized$Organ == organ,]
+  
+  plot <- ggplot(temp, aes(x = Molecule, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , organ, " Area by LabelStatus"),
+      x = "Label Status",
+      y = "Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+```{r}
+p_value_results <- data.frame(
+  Molecule = character(),
+  Organ = character(),
+  Test = character(),
+  P_Value = numeric(),
+  Fold_Change = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (molecule in unique(NovemberDataOralVehNonNormalized$Molecule)) {
+  for (organ in unique(NovemberDataOralVehNonNormalized$Organ)) {
+    
+    # Extract TotalArea values for both fasting lengths
+    total_area_C12 <- NovemberDataOralVehNonNormalized[
+      NovemberDataOralVehNonNormalized$Molecule == molecule & 
+      NovemberDataOralVehNonNormalized$Organ == organ & 
+      NovemberDataOralVehNonNormalized$X12Cv13C == "C12", ]$TotalArea
+    
+    total_area_Veh <- NovemberDataOralVehNonNormalized[
+      NovemberDataOralVehNonNormalized$Molecule == molecule & 
+      NovemberDataOralVehNonNormalized$Organ == organ & 
+      NovemberDataOralVehNonNormalized$X12Cv13C == "Veh", ]$TotalArea
+    
+    # Perform Shapiro-Wilk normality test
+    normalcyC12 <- shapiro.test(total_area_C12)$p.value
+    normalcyVeh <- shapiro.test(total_area_Veh)$p.value
+    
+    # Choose the appropriate test based on normality
+    if (normalcyC12 < 0.05 | normalcyVeh < 0.05) {
+      test_used <- "Wilcoxon"
+      p_val <- wilcox.test(total_area_C12, total_area_Veh)$p.value
+      foldChange <- median(total_area_C12)/median(total_area_Veh)
+    } else {
+      test_used <- "T-test"
+      p_val <- t.test(total_area_C12, total_area_Veh)$p.value
+      foldChange <- median(total_area_C12)/median(total_area_Veh)
+    }
+    
+    # Append results to the dataframe
+    p_value_results <- rbind(p_value_results, data.frame(
+      Molecule = molecule,
+      Organ = organ,
+      Test = test_used,
+      P_Value = p_val,
+      Fold_Change = foldChange,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+# Print the final dataframe with results
+print(p_value_results)
+
+write.csv(p_value_results, "OralVeh.csv")
+```
+
+
+```{r}
+MoleculeList <- c(unique(NovemberDataOralVehNonNormalized$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- NovemberDataOralVehNonNormalized[NovemberDataOralVehNonNormalized$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = Molecule, group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 2, 
+                alpha = 0.65) +
+    stat_compare_means(aes(group = X12Cv13C), method = "wilcox.test", label = "p.format",size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Normalized Area",
+      color = "Molecule"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+
+__________
+
+Normalized
+__________
+
+```{r}
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+
+
+plot <- ggplot(NovemberDataOralVehNormalized, aes(x = Molecule, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = Molecule, group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 2, 
+                alpha = 0.65) +
+    stat_compare_means(aes(group = X12Cv13C), method = "wilcox.test", label = "p.format",size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Normalized Area",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c('transparent', "#87878a")) +
+#  guides(fill = "none",color = guide_legend(title = "Molecule"),Timing = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+#    axis.text.x = element_blank(),
+#    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 20),  
+    legend.position = "none"      
+  )
+
+plot(plot)
+```
+ggsave("NormalizedPlasmaVehicleEffects.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+
+```{r}
+  plot <- ggplot(NovemberDataOralVehNormalized, aes(x = Molecule, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = Organ, group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 2, 
+                alpha = 0.65) +
+    stat_compare_means(aes(group = X12Cv13C), method = "wilcox.test", label = "p.format",size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Normalized Area",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c('transparent', "#87878a")) +
+  guides(fill = "none",color = guide_legend(title = "Organ"),Timing = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+#    axis.text.x = element_blank(),
+#    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 20),  
+    legend.position = "none"      
+  )
+  plot(plot)
+```
+No significant effects of oral vehicle
+
+
+__________________________________
+
+Blank Check
+__________________________________
+
+```{r}
+
+AprilDataBlankCheckNonNormalized <- AprilDataWithNorm %>%
+  filter(X12Cv13C %in% c("Blank")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C) %>%
+  summarise(TotalArea = sum(Area), .groups = 'drop')
+
+NovemberData13CGroupedNonNormalized <- NovemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C) %>%
+#  filter(Organ %in% c("UpperHeart")) %>%
+  summarise(TotalArea = sum(Area), .groups = 'drop')
+
+BlankCheck <- rbind(AprilDataBlankCheckNonNormalized, NovemberData13CGroupedNonNormalized)
+```
+__________
+
+Non-normalized
+__________
+
+```{r}
+MoleculeList <- c(unique(BlankCheck$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- BlankCheck[BlankCheck$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Area by LabelStatus"),
+      x = "Label Status",
+      y = "Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+
+All but F6P significant
+
+
+_______________
+
+Differences in labeling based off precursor 
+
+______________
+
+
+```{r}
+NovemberDataWithNormC13 <- NovemberDataWithNorm %>%
+  filter(!Molecule %in% c('aKG', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+#  filter(Organ %in% c("Liver")) %>%
+  filter(!Labeling %in% c('Unlabeled')) 
+
+#These are extreme outliers that are likely processing errors
+NovemberDataWithNormC13 <- NovemberDataWithNormC13 %>%
+  filter(!Molecule %in% c('aKG', 'F6P')) %>%
+  filter(!(Replicate.Name == "13C_Glucose_Esophagus_1_Oral" & Molecule == "Citrate")) %>%
+  filter(!(Replicate.Name == "13C_Lactate_Esophagus_3_Oral" & Molecule == "Citrate")) %>%
+  filter(!(Replicate.Name == "13C_Pyruvate_Esophagus_1_Oral" & Molecule == "Citrate")) %>%
+  filter(!(Replicate.Name == "13C_Glucose_Esophagus_4_Oral" & Molecule == "Citrate"))
+
+unique(NovemberDataWithNormC13$Organ)
+```
+
+```{r}
+  plot <- ggplot(NovemberDataWithNormC13, aes(x = Precursor, y = TotalArea, fill = as.factor(Route))) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+      geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(Route), group = factor(Route)),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.5),  
+                size = 1.5, 
+                alpha = 0.5) +
+#      stat_compare_means(aes(group = Route), method = "wilcox.test", label = "p.format", size = 5) +
+      labs(
+        x = "Dosage",
+        y = "Labeled Fraction",
+        color = "Molecule"
+      ) +
+    theme_set(theme_bw() + theme_custom) +
+    ylim(0,1.05) +
+    scale_color_brewer(palette = "Dark2") +  
+    scale_fill_manual(values = c('#5D9CEC', "#FF6F61")) +
+    #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+    theme(
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 14),        # Size for axis labels
+      axis.text.x = element_blank(),
+      axis.title.y = element_text(size = 24), 
+      axis.title.x = element_blank(),  # Hides x-axis label
+      legend.text = element_text(size = 16),       # Size for legend labels
+      legend.position = "none"  
+    )
+  print(plot)
+  print(NovemberDataWithNormC13 %>%
+    group_by(Precursor) %>%
+    summarise(
+      Area_IP = median(TotalArea[Route == "IP"], na.rm = TRUE),
+      Area_Oral = median(TotalArea[Route == "Oral"], na.rm = TRUE),
+      Ratio = ifelse(Area_Oral != 0, Area_IP / Area_Oral, NA)
+    ))
+  
+  ggsave("PrecursorEffectByRoute.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+```
+
+
+
+```{r}
+OrganList <- c(unique(NovemberDataWithNormC13$Organ))
+for (organ in OrganList){
+  print(organ)
+  temp <- NovemberDataWithNormC13[NovemberDataWithNormC13$Organ == organ,]
+  
+  plot <- ggplot(temp, aes(x = Precursor, y = TotalArea, fill = as.factor(Route))) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+      geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(Route), group = factor(Route)),  # Ensure proper grouping
+                  position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                  size = 1, 
+                  alpha = 0.5) +
+      stat_compare_means(aes(group = Route), 
+                         method = "wilcox.test", 
+                         label = "p.format",
+                         size = 5) +
+      labs(
+        x = "Dosage",
+        y = "Normalized Area",
+        color = "Molecule"
+      ) +
+    theme_set(theme_bw() + theme_custom) +
+    ylim(0,1.05) +
+    scale_color_brewer(palette = "Dark2") +  
+    scale_fill_manual(values = c('#5D9CEC', "#FF6F61")) +
+    #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+    theme(
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 14),        # Size for axis labels
+      legend.text = element_text(size = 16)       # Size for legend labels
+    )
+  print(plot)
+  print(temp %>%
+    group_by(Precursor) %>%
+    summarise(
+      Area_IP = median(TotalArea[Route == "IP"], na.rm = TRUE),
+      Area_Oral = median(TotalArea[Route == "Oral"], na.rm = TRUE),
+      Ratio = ifelse(Area_Oral != 0, Area_IP / Area_Oral, NA)
+    ))
+}
+```
+
+```{r}
+NovemberDataWithNormC13OnlyGlucose <- NovemberDataWithNorm %>%
+  filter(!Molecule %in% c('aKG', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Precursor, Route, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+#  filter(Organ %in% c("UpperHeart", "LowerHeart")) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Precursor %in% c("Glucose"))
+
+#These are extreme outliers that are likely processing errors
+NovemberDataWithNormC13OnlyGlucose <- NovemberDataWithNormC13OnlyGlucose %>%
+  filter(!(Replicate.Name == "13C_Glucose_Esophagus_1_Oral" & Molecule == "Citrate")) %>%
+  filter(!(Replicate.Name == "13C_Glucose_Esophagus_4_Oral" & Molecule == "Citrate"))
+```
+
+
+```{r}
+  plot <- ggplot(NovemberDataWithNormC13OnlyGlucose, aes(x = Organ, y = TotalArea, fill = as.factor(Route))) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+      geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(Route), group = Route),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.5),  
+                size = 2, 
+                alpha = 0.65) +
+      #stat_compare_means(aes(group = Route), method = "wilcox.test", label = "p.format", size = 5) +
+      labs(
+        x = "Dosage",
+        y = "Labeled Fraction",
+        color = "Molecule"
+      ) +
+    theme_set(theme_bw() + theme_custom) +
+    ylim(0,1.05) +
+    scale_color_brewer(palette = "Dark2") +  
+    scale_fill_manual(values = c('#5D9CEC', "#FF6F61")) +
+    #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+    theme(
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 14),        # Size for axis labels
+      axis.text.x = element_blank(),
+      axis.title.y = element_text(size = 24), 
+      axis.title.x = element_blank(),  # Hides x-axis label
+      legend.text = element_text(size = 16),       # Size for legend labels
+      legend.position = "none"  
+    )
+  print(plot)
+
+ggsave("GlucoseOrganComparisonOG.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+```
+
+
+
+```{r}
+MoleculeList <- c(unique(NovemberDataWithNormC13OnlyGlucose$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- NovemberDataWithNormC13OnlyGlucose[NovemberDataWithNormC13OnlyGlucose$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Organ, y = TotalArea, fill = as.factor(Route))) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+      geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(Route), group = Route),  # Ensure proper grouping
+                  position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                  size = 1, 
+                  alpha = 0.5) +
+      stat_compare_means(aes(group = Route), 
+                         method = "wilcox.test", 
+                         label = "p.format",
+                         size = 5) +
+      labs(
+        x = "Dosage",
+        y = "Normalized Area",
+        color = "Molecule"
+      ) +
+    theme_set(theme_bw() + theme_custom) +
+    ylim(0,1.05) +
+    scale_color_brewer(palette = "Dark2") +  
+    scale_fill_manual(values = c('#5D9CEC', "#FF6F61")) +
+    #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+    theme(
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 14),        # Size for axis labels
+      axis.text.x = element_blank(),
+      axis.title.y = element_text(size = 24), 
+      axis.title.x = element_blank(),  # Hides x-axis label
+      legend.text = element_text(size = 16),       # Size for legend labels
+      legend.position = "none"  
+    )
+  print(plot)
+  print(temp %>%
+    group_by(Organ) %>%
+    summarise(
+      Area_IP = median(TotalArea[Route == "IP"], na.rm = TRUE),
+      Area_Oral = median(TotalArea[Route == "Oral"], na.rm = TRUE),
+      Ratio = ifelse(Area_Oral != 0, Area_IP / Area_Oral, NA)
+    ))
+}
+```
+
+On an indivudal basis, significance isn't met, but as collective there is a clear trend towards IP
+
+
+
+
+______________________________________________
+
+
+    2.5 mg/g glucose vs lactate/pyruvate
+
+
+______________________________________________
+
+```{r}
+MayWithNorm2point5 <- MayWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'aKG', 'F6P')) %>%
+  filter(Dosage %in% c('2point5mg')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(!Organ %in% c('FacialBleed'))
+
+NovemberLactate <- NovemberDataWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'aKG', 'F6P')) %>%
+  filter(Precursor %in% c('Lactate')) %>%
+  filter(Route %in% c('IP')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Organ %in% c('Plasma', 'Heart'))
+
+NovemberPyruvate <- NovemberDataWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'aKG', 'F6P')) %>%
+  filter(Precursor %in% c('Pyruvate')) %>%
+  filter(Route %in% c('IP')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Organ %in% c('Plasma', 'Heart'))
+
+NovemberBoth <- NovemberDataWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'aKG', 'F6P')) %>%
+  filter(Precursor %in% c('Lactate', "Pyruvate")) %>%
+  filter(Route %in% c('IP')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Organ %in% c('Plasma', 'Heart'))
+
+mean(MayWithNorm2point5[MayWithNorm2point5$Organ == 'Heart',]$TotalArea)
+mean(MayWithNorm2point5[MayWithNorm2point5$Organ == 'Plasma',]$TotalArea)
+
+mean(NovemberLactate[NovemberLactate$Organ == 'Heart',]$TotalArea)
+mean(NovemberLactate[NovemberLactate$Organ == 'Plasma',]$TotalArea)
+
+mean(NovemberPyruvate[NovemberPyruvate$Organ == 'Heart',]$TotalArea)
+mean(NovemberPyruvate[NovemberPyruvate$Organ == 'Plasma',]$TotalArea)
+
+#Heart
+mean(MayWithNorm2point5[MayWithNorm2point5$Organ == 'Heart',]$TotalArea)/mean(NovemberBoth[NovemberBoth$Organ == 'Heart',]$TotalArea)
+mean(MayWithNorm2point5[MayWithNorm2point5$Organ == 'Heart',]$TotalArea)/mean(NovemberPyruvate[NovemberPyruvate$Organ == 'Heart',]$TotalArea)
+
+#plasma
+mean(MayWithNorm2point5[MayWithNorm2point5$Organ == 'Plasma',]$TotalArea)/mean(NovemberBoth[NovemberBoth$Organ == 'Plasma',]$TotalArea)
+mean(MayWithNorm2point5[MayWithNorm2point5$Organ == 'Plasma',]$TotalArea)/mean(NovemberPyruvate[NovemberPyruvate$Organ == 'Plasma',]$TotalArea)
+
+```
+
+
+
+
+
+
+```{r}
+SeptemberDataFastingComparison <- SeptemberDataWithNorm %>%
+#  filter(!Molecule %in% c('aKG', 'Citrate')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, FastLength, Organ, Fasting_Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled'))
+
+p_value_results <- data.frame(
+  Molecule = character(),
+  Organ = character(),
+  Test = character(),
+  P_Value = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (molecule in unique(SeptemberDataFastingComparison$Molecule)) {
+  for (organ in unique(SeptemberDataFastingComparison$Organ)) {
+    
+    # Extract TotalArea values for both fasting lengths
+    total_area_90 <- SeptemberDataFastingComparison[
+      SeptemberDataFastingComparison$Molecule == molecule & 
+      SeptemberDataFastingComparison$Organ == organ & 
+      SeptemberDataFastingComparison$FastLength == "90Minutes", ]$TotalArea
+    
+    total_area_270 <- SeptemberDataFastingComparison[
+      SeptemberDataFastingComparison$Molecule == molecule & 
+      SeptemberDataFastingComparison$Organ == organ & 
+      SeptemberDataFastingComparison$FastLength == "270Minutes", ]$TotalArea
+    
+    # Perform Shapiro-Wilk normality test
+    normalcy90 <- shapiro.test(total_area_90)$p.value
+    normalcy270 <- shapiro.test(total_area_270)$p.value
+    
+    # Choose the appropriate test based on normality
+    if (normalcy90 < 0.05 | normalcy270 < 0.05) {
+      test_used <- "Wilcoxon"
+      p_val <- wilcox.test(total_area_90, total_area_270)$p.value
+    } else {
+      test_used <- "T-test"
+      p_val <- t.test(total_area_90, total_area_270)$p.value
+    }
+    
+    # Append results to the dataframe
+    p_value_results <- rbind(p_value_results, data.frame(
+      Molecule = molecule,
+      Organ = organ,
+      Test = test_used,
+      P_Value = p_val,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+# Print the final dataframe with results
+print(p_value_results)
+
+write.csv(p_value_results, "MoleculePVals.csv")
+```
+
+
+
+
+
+
+
+
+
+
+
+

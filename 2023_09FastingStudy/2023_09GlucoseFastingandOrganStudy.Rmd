@@ -1,0 +1,629 @@
+---
+title: "2023_09FastingAndOrganStudy"
+author: "JarrodLaro"
+date: "2025-01-23"
+output: html_document
+---
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(VennDiagram)
+library(UpSetR)
+library(ggvenn)
+library(ggpubr)
+library(rstatix)
+```
+
+______________________________________________________
+
+                Xcalibur Load
+                
+______________________________________________________
+
+
+```{r}
+SeptemberData <- read.csv("C:/Users/NewJarrod/OneDrive - University of Oklahoma/202513C_Methods_Paper/2023_09FastingStudy/2023_09FastingStudyFormatted.csv", fileEncoding = 'UTF-8-BOM')
+
+SeptemberData$Organ[SeptemberData$Organ == "UpperHeart"] <- "Heart"
+SeptemberData$Organ[SeptemberData$Organ == "RightKidney"] <- "Kidney"
+SeptemberData$Organ[SeptemberData$Organ == "RightLiver"] <- "Liver"
+
+SeptemberData$Fasting_Organ <- paste(SeptemberData$FastLength, SeptemberData$Organ, sep = "_")
+
+SeptemberDataWithNorm <- SeptemberData %>%
+  group_by(Replicate.Name, Molecule) %>%
+  mutate(NormalizedArea = Area / sum(Area)) %>%
+  filter(!Organ %in% c("LowerHeart", "LeftKidney", "LeftLiver")) %>%
+  ungroup()
+
+```
+
+AprilData <- AprilData %>%
+  filter(Precursor.Adduct %in% c("[M-H]", "[MC13-H]", "[MC213-H]"))
+  
+AprilData <- AprilData %>%
+  filter(Precursor.Adduct %in% c("[M-H]", "[Max-1-H]", "[Max-H]"))
+  
+AprilData <- AprilData %>%
+  filter(!Timing %in% c('15min') ) %>%
+  filter(!Dosage %in% c('1mg') ) %>%
+  filter(Precursor.Adduct %in% c("[M-H]", "[MC13-H]", "[MC213-H]"))
+  
+AprilData <- AprilData %>%
+  filter(!Timing %in% c('15min') ) %>%
+  filter(!Dosage %in% c('1mg') ) %>%
+  filter(Precursor.Adduct %in% c("[M-H]", "[Max-1-H]", "[Max-H]"))
+
+AprilData <- AprilData %>%
+  filter(!Timing %in% c('15min') ) %>%
+  filter(!Dosage %in% c('1mg') )
+__________________________________
+
+12C v 13C
+__________________________________
+
+```{r}
+unique(SeptemberDataWithNorm$Organ)
+
+SeptemberData12Cv13CGrouped <- SeptemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12", "C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C) %>%
+#  filter(Organ %in% c("UpperHeart")) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop')
+```
+
+
+aKG is a little iffy overall, but everything else looks good
+-aKG not significant in LeftKidney
+-Citrate and the 6Ps iffy but significant in LeftLiver
+-All good in LowerHeart
+-All good in plasma
+-All good in PCo
+-aKG and citrate not significant right kidney
+-6Ps iffy but significant in RightLiver too. aKG not significant
+-All good in upper heart
+
+
+
+
+```{r}
+
+MoleculeList <- c(unique(SeptemberData12Cv13CGrouped$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- SeptemberData12Cv13CGrouped[SeptemberData12Cv13CGrouped$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Label Status",
+      y = "Normalized Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+__________________________________
+
+Heart Comparison
+__________________________________
+
+```{r}
+SeptemberDataHeartSamples <- SeptemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C13")) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Organ) %>%
+  filter(Organ %in% c("UpperHeart", "LowerHeart")) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop')
+```
+
+No significant differences, but aconitate and citrate get close
+
+
+
+
+```{r}
+
+MoleculeList <- c(unique(SeptemberDataHeartSamples$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- SeptemberDataHeartSamples[SeptemberDataHeartSamples$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Organ, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = Organ), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Label Status",
+      y = "Normalized Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+
+
+__________________________________
+
+Liver Comparison
+__________________________________
+
+```{r}
+SeptemberDataLiverSamples <- SeptemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C13")) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Organ) %>%
+  filter(Organ %in% c("LeftLiver", "RightLiver")) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop')
+```
+
+Citrate is significant, everything else is fine
+
+
+
+
+```{r}
+
+MoleculeList <- c(unique(SeptemberDataLiverSamples$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- SeptemberDataLiverSamples[SeptemberDataLiverSamples$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Organ, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = Organ), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Label Status",
+      y = "Normalized Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+
+__________________________________
+
+Kidney Comparison
+__________________________________
+
+```{r}
+SeptemberDataKidneySamples <- SeptemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C13")) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Organ) %>%
+  filter(Organ %in% c("LeftKidney", "RightKidney")) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop')
+```
+
+All the same
+
+```{r}
+
+MoleculeList <- c(unique(SeptemberDataKidneySamples$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- SeptemberDataKidneySamples[SeptemberDataKidneySamples$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Organ, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = Organ), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Normalized Area by LabelStatus"),
+      x = "Label Status",
+      y = "Normalized Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+
+
+__________________________________
+
+Blank Check
+__________________________________
+
+All molecules are better than blank overall
+
+
+```{r}
+
+AprilDataBlankCheckNonNormalized <- AprilDataWithNorm %>%
+  filter(X12Cv13C %in% c("Blank")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C) %>%
+  summarise(TotalArea = sum(Area), .groups = 'drop')
+
+SeptemberData13CGroupedNonNormalized <- SeptemberDataWithNorm %>%
+  filter(X12Cv13C %in% c("C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C) %>%
+#  filter(Organ %in% c("UpperHeart")) %>%
+  summarise(TotalArea = sum(Area), .groups = 'drop')
+
+BlankCheck <- rbind(AprilDataBlankCheckNonNormalized, SeptemberData13CGroupedNonNormalized)
+```
+__________
+
+Non-normalized
+__________
+
+```{r}
+MoleculeList <- c(unique(BlankCheck$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- BlankCheck[BlankCheck$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Area by LabelStatus"),
+      x = "Label Status",
+      y = "Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+______________________________________________
+
+
+            Fasting analysis by Molecule
+
+
+______________________________________________
+
+Compare samples between Cohorts
+
+```{r}
+SeptemberDataFastingComparison <- SeptemberDataWithNorm %>%
+#  filter(!Molecule %in% c('aKG', 'Citrate')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, FastLength, Organ, Fasting_Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled'))
+
+p_value_results <- data.frame(
+  Molecule = character(),
+  Organ = character(),
+  Test = character(),
+  P_Value = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (molecule in unique(SeptemberDataFastingComparison$Molecule)) {
+  for (organ in unique(SeptemberDataFastingComparison$Organ)) {
+    
+    # Extract TotalArea values for both fasting lengths
+    total_area_90 <- SeptemberDataFastingComparison[
+      SeptemberDataFastingComparison$Molecule == molecule & 
+      SeptemberDataFastingComparison$Organ == organ & 
+      SeptemberDataFastingComparison$FastLength == "90Minutes", ]$TotalArea
+    
+    total_area_270 <- SeptemberDataFastingComparison[
+      SeptemberDataFastingComparison$Molecule == molecule & 
+      SeptemberDataFastingComparison$Organ == organ & 
+      SeptemberDataFastingComparison$FastLength == "270Minutes", ]$TotalArea
+    
+    # Perform Shapiro-Wilk normality test
+    normalcy90 <- shapiro.test(total_area_90)$p.value
+    normalcy270 <- shapiro.test(total_area_270)$p.value
+    
+    # Choose the appropriate test based on normality
+    if (normalcy90 < 0.05 | normalcy270 < 0.05) {
+      test_used <- "Wilcoxon"
+      p_val <- wilcox.test(total_area_90, total_area_270)$p.value
+    } else {
+      test_used <- "T-test"
+      p_val <- t.test(total_area_90, total_area_270)$p.value
+    }
+    
+    # Append results to the dataframe
+    p_value_results <- rbind(p_value_results, data.frame(
+      Molecule = molecule,
+      Organ = organ,
+      Test = test_used,
+      P_Value = p_val,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+# Print the final dataframe with results
+print(p_value_results)
+
+write.csv(p_value_results, "MoleculePVals.csv")
+```
+
+```{r}
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+plot <- ggplot(SeptemberDataFastingComparison, aes(x = Organ, y = TotalArea, fill = as.factor(FastLength))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = as.factor(Molecule), group = FastLength),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1, 
+                alpha = 0.5) +
+    stat_compare_means(aes(group = FastLength), 
+                       method = "wilcox.test", 
+                       label = "p.format",
+                       size = 5) +
+    labs(
+      x = "Organ",
+      y = "Normalized Area",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_brewer(palette = "Pastel1") +
+  #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 14),        # Size for axis labels
+
+    legend.text = element_text(size = 16)       # Size for legend labels
+  )
+
+plot(plot)
+```
+
+```{r}
+MoleculeList <- c(unique(SeptemberDataFastingComparison$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- SeptemberDataFastingComparison[SeptemberDataFastingComparison$Molecule == molecule,]
+  
+
+  plot <- ggplot(temp, aes(x = Organ, y = TotalArea, fill = as.factor(FastLength))) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+      geom_jitter(aes(color = as.factor(Molecule), group = FastLength),  # Ensure proper grouping
+                  position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                  size = 1, 
+                  alpha = 0.5) +
+      stat_compare_means(aes(group = FastLength), 
+                         method = "t.test", 
+                         label = "p.format",
+                         size = 5) +
+      labs(
+        x = "Organ",
+        y = "Normalized Area",
+        color = "Molecule"
+      ) +
+    theme_set(theme_bw() + theme_custom) +
+    ylim(0,1.05) +
+    scale_color_brewer(palette = "Dark2") +  
+    scale_fill_brewer(palette = "Pastel1") +
+    #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+    theme(
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 14),        # Size for axis labels
+      legend.text = element_text(size = 16)       # Size for legend labels
+    )
+  print(plot)
+}
+```
+
+
+______________________________________________
+
+
+          Fasting analysis by Organ
+
+
+______________________________________________
+
+Compare samples between Cohorts
+
+```{r}
+SeptemberDataFastingComparison <- SeptemberDataWithNorm %>%
+#  filter(!Molecule %in% c('aKG', 'Citrate')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, FastLength, Organ, Fasting_Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Organ %in% c("Heart"))
+```
+
+
+```{r}
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+plot <- ggplot(SeptemberDataFastingComparison, aes(x = Molecule, y = TotalArea, fill = factor(FastLength,levels = c("90Minutes", "270Minutes")))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(x = Molecule, group = factor(FastLength,levels = c("90Minutes", "270Minutes"))),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1, 
+                alpha = 0.5) +
+    #stat_compare_means(aes(group = FastLength), method = "wilcox.test", label = "p.format", size = 5) +
+    labs(
+      x = "Organ",
+      y = "Labeled Fraction",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c('#90EE90', "#FF77FF")) +
+  guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 24),  
+    legend.position = "none"  
+  )
+
+plot(plot)
+
+SeptemberDataFastingComparison %>%
+    group_by(Molecule) %>%
+    summarise(
+      Area_90 = median(TotalArea[FastLength == "90Minutes"], na.rm = TRUE),
+      Area_270 = median(TotalArea[FastLength == "270Minutes"], na.rm = TRUE),
+      Ratio = ifelse(Area_270 != 0, Area_90 / Area_270, NA)
+    )
+
+ggsave("CombinedHeartFastLength.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+
+```
+
+```{r}
+OrganList <- c(unique(SeptemberDataFastingComparison$Organ))
+for (organ in OrganList){
+  print(organ)
+  temp <- SeptemberDataFastingComparison[SeptemberDataFastingComparison$Organ == organ,]
+  
+  print(paste0("13C plasma p-value ", shapiro.test(AprilMayTimingOrgan[AprilMayTimingOrgan$Dosage_Organ == "1mg_Plasma",]$TotalArea)$p.value))
+
+  plot <- ggplot(temp, aes(x = Molecule, y = TotalArea, fill = as.factor(FastLength))) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+      geom_jitter(aes(color = as.factor(Organ), group = FastLength),  # Ensure proper grouping
+                  position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                  size = 1, 
+                  alpha = 0.5) +
+      stat_compare_means(aes(group = FastLength), 
+                         method = "wilcox.test", 
+                         label = "p.format",
+                         size = 5) +
+      labs(
+        x = "Organ",
+        y = "Normalized Area",
+        color = "Molecule"
+      ) +
+    theme_set(theme_bw() + theme_custom) +
+    ylim(0,1.05) +
+    scale_color_brewer(palette = "Dark2") +  
+    scale_fill_brewer(palette = "Pastel1") +
+    #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+    theme(
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 14),        # Size for axis labels
+      legend.text = element_text(size = 16)       # Size for legend labels
+    )
+  print(plot)
+}
+```
+
+
+
+
+
+
+
+
+Compare samples between Cohorts
+
+```{r}
+SeptemberDataFastingComparison <- SeptemberDataWithNorm %>%
+#  filter(!Molecule %in% c('aKG', 'Citrate')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, FastLength, Organ, Fasting_Organ) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Organ %in% c("Liver"))
+```
+
+
+```{r}
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+plot <- ggplot(SeptemberDataFastingComparison, aes(x = Molecule, y = TotalArea, fill = factor(FastLength,levels = c("90Minutes", "270Minutes")))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(x = Molecule, group = factor(FastLength,levels = c("90Minutes", "270Minutes"))),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1, 
+                alpha = 0.5) +
+    #stat_compare_means(aes(group = FastLength), method = "wilcox.test", label = "p.format", size = 5) +
+    labs(
+      x = "Organ",
+      y = "Labeled Fraction",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c('#90EE90', "#FF77FF")) +
+  guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 24),  
+    legend.position = "none"  
+  )
+
+plot(plot)
+
+SeptemberDataFastingComparison %>%
+    group_by(Molecule) %>%
+    summarise(
+      Area_90 = median(TotalArea[FastLength == "90Minutes"], na.rm = TRUE),
+      Area_270 = median(TotalArea[FastLength == "270Minutes"], na.rm = TRUE),
+      Ratio = ifelse(Area_270 != 0, Area_90 / Area_270, NA)
+    )
+
+ggsave("CombinedLiverFastLength.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+
+```
+
+
+
+

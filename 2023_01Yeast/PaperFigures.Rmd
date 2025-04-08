@@ -1,0 +1,79 @@
+---
+title: "LabelingMethodsPaper"
+author: "JarrodLaro"
+date: "2025-02-06"
+output: html_document
+---
+
+Load in all libraries
+```{r}
+library(dplyr)
+library(ggplot2)
+library(VennDiagram)
+library(UpSetR)
+library(ggvenn)
+library(ggpubr)
+library(rstatix)
+library(tidyr)
+```
+
+_______________________________________
+
+          Yeast Figures
+          
+_______________________________________
+
+
+```{r}
+Yeast <- read.csv("C:/Users/NewJarrod/OneDrive - University of Oklahoma/202513C_Methods_Paper/2023_01Yeast/YeastDataForR.csv", fileEncoding = 'UTF-8-BOM')
+
+Yeast$Ratio <- factor(Yeast$Ratio , levels = Yeast$Ratio)
+```
+
+
+```{r}
+# Convert FractionType to a factor with the correct order
+Yeast_long <- Yeast %>%
+  pivot_longer(cols = c("Unlabeled.Fraction", "Labeled.Fraction"),
+               names_to = "FractionType",
+               values_to = "Value") %>%
+  mutate(FractionType = factor(FractionType, levels = c("Unlabeled.Fraction","Labeled.Fraction")))  # Ensures correct stacking order
+
+# Create the stacked bar chart with error bars
+ggplot(Yeast_long, aes(x = Ratio, y = Value, fill = FractionType)) +
+  geom_hline(yintercept = c(0, 0.25, 0.5, 0.75, 1),
+             color = "black", size = 0.5) +
+  geom_bar(stat = "identity") +
+  # Add error bars using the original Yeast data
+  geom_errorbar(data = Yeast,
+                aes(x = Ratio, 
+                    y = Labeled.Fraction,
+                    ymin = pmax(Labeled.Fraction - Standard.Error, 0.0001), 
+                    ymax = pmin(Labeled.Fraction + Standard.Error, 1)),
+                width = 0.2,
+                inherit.aes = FALSE) +
+  labs(#title = "Stacked Bar Chart with Error Bars",
+       x = "Yeast Ratio",
+       y = "Label Fraction") +
+  # Change fill colors for the fractions
+  scale_fill_manual(values = c("Unlabeled.Fraction" = "#FFC107",
+                               "Labeled.Fraction" = "#D81B60"),
+                    name = NULL,
+                    labels = c("Unlabeled Fraction","Labeled Fraction")) +
+  scale_y_continuous(breaks = seq(0, 1, by = 0.25), minor_breaks = seq(0, 1, by = 0.05)) +
+  theme_bw() + 
+  theme(axis.text.x = element_text(size = 14), 
+        axis.text.y = element_text(size = 14),
+        axis.title.x = element_text(size = 16),
+        axis.title.y = element_text(size = 16),
+        panel.grid.minor = element_line(color = "gray", size = 0.1),
+        plot.title = element_text(size = 18, hjust = 0.5),
+        legend.text = element_text(size = 16), 
+        legend.position = "top",
+        legend.key.size = unit(1, "cm"))
+
+ggsave("YeastDifferences.png", plot = last_plot(), device = "png", width = 9, height = 8, dpi = 300)
+
+```
+
+

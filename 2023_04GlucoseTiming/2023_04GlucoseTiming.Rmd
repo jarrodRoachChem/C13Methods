@@ -1,0 +1,1461 @@
+---
+title: "2023_04GlucoseTiming"
+author: "JarrodLaro"
+date: "2025-01-23"
+output: html_document
+---
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(VennDiagram)
+library(UpSetR)
+library(ggvenn)
+library(ggpubr)
+library(rstatix)
+```
+
+
+```{r}
+#Full data
+AllSamples <- read.csv("C:/Users/NewJarrod/OneDrive - University of Oklahoma/202513C_Methods_Paper/2023_04GlucoseTiming/GlucoseTimingStatistics.csv", fileEncoding = 'UTF-8-BOM')
+AllSamples$LabelStatus <- ifelse(AllSamples$Isotope == 0, "Unlabeled", "Labeled")
+```
+
+
+```{r}
+MoleculeList <- c(unique(AllSamples$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- AllSamples[AllSamples$Molecule == molecule,]
+  
+  #filter NAs
+  temp <- temp %>%
+    filter(!is.na(C12Normalized.Area))
+  
+  plot <- ggplot(temp, aes(x = LabelStatus, y = C12Normalized.Area, fill = as.factor(Label))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = Label), 
+                       method = "t.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Area by LabelStatus"),
+      x = "Label Status",
+      y = "Area",
+      fill = "Label"
+    ) +
+    ylim(0,25)
+    theme_minimal()
+    print(plot)
+}
+```
+______________________________________________________
+
+                Xcalibur Load
+                
+______________________________________________________
+
+
+```{r}
+AprilData <- read.csv("C:/Users/NewJarrod/OneDrive - University of Oklahoma/202513C_Methods_Paper/2023_04GlucoseTiming/2023_04GlucoseTimingFormatted.csv", fileEncoding = 'UTF-8-BOM')
+
+MayData <- read.csv("C:/Users/NewJarrod/OneDrive - University of Oklahoma/202513C_Methods_Paper/2023_05GlucoseDosing/2023_05GlucoseDosingFormatted.csv", fileEncoding = 'UTF-8-BOM')
+
+AprilData$Cohort <- "April"
+
+MayData$Cohort <- "May"
+
+MayData <- MayData %>%
+  filter(!Dosage %in% c('1mg','5mg'))
+
+AprilData$Dosage_Organ <- paste(AprilData$Dosage, AprilData$Organ, sep = "_")
+MayData$Dosage_Organ <- paste(MayData$Dosage, MayData$Organ, sep = "_")
+
+AprilMay <- rbind(AprilData, MayData)
+
+AprilDataWithNorm <- AprilData %>%
+  group_by(Replicate.Name, Molecule) %>%
+  mutate(NormalizedArea = Area / sum(Area)) %>%
+  ungroup()
+
+
+AprilMayWithNorm <- AprilMay %>%
+  group_by(Replicate.Name, Molecule) %>%
+  mutate(NormalizedArea = Area / sum(Area)) %>%
+  ungroup()
+
+MayWithNorm <- MayData %>%
+  group_by(Replicate.Name, Molecule) %>%
+  mutate(NormalizedArea = Area / sum(Area)) %>%
+  ungroup()
+```
+
+AprilData <- AprilData %>%
+  filter(Precursor.Adduct %in% c("[M-H]", "[MC13-H]", "[MC213-H]"))
+  
+AprilData <- AprilData %>%
+  filter(Precursor.Adduct %in% c("[M-H]", "[Max-1-H]", "[Max-H]"))
+  
+AprilData <- AprilData %>%
+  filter(!Timing %in% c('15min') ) %>%
+  filter(!Dosage %in% c('1mg') ) %>%
+  filter(Precursor.Adduct %in% c("[M-H]", "[MC13-H]", "[MC213-H]"))
+  
+AprilData <- AprilData %>%
+  filter(!Timing %in% c('15min') ) %>%
+  filter(!Dosage %in% c('1mg') ) %>%
+  filter(Precursor.Adduct %in% c("[M-H]", "[Max-1-H]", "[Max-H]"))
+
+AprilData <- AprilData %>%
+  filter(!Timing %in% c('15min') ) %>%
+  filter(!Dosage %in% c('1mg') )
+__________________________________
+
+12C v 13C
+__________________________________
+
+```{r}
+AprilData12Cv13C <- AprilDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12","C13"))
+
+AprilData12Cv13CNonNormalized <- AprilDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12", "C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C) %>%
+  summarise(TotalArea = sum(Area), .groups = 'drop')
+
+AprilData12Cv13CNormalized <- AprilDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12", "C13")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C) %>%
+  filter(Dosage %in% c("4mg")) %>%
+  filter(!Molecule %in% c("Citrate", 'G6P')) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop')
+```
+
+__________
+
+Non-normalized
+__________
+
+```{r}
+
+MoleculeList <- c(unique(AprilData12Cv13CNonNormalized$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- AprilData12Cv13CNonNormalized[AprilData12Cv13CNonNormalized$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Area by LabelStatus"),
+      x = "Label Status",
+      y = "Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+
+__________
+
+Normalized
+__________
+
+```{r}
+
+MoleculeList <- c(unique(AprilData12Cv13CNormalized$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- AprilData12Cv13CNormalized[AprilData12Cv13CNormalized$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Labeled Fraction by LabelStatus"),
+      x = "Label Status",
+      y = "Labeled Fraction",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+    print(temp %>%
+            summarise(
+              Area_12C = median(TotalArea[X12Cv13C == "C12" & Labeling == "Labeled"], na.rm = TRUE),
+              Area_13C = median(TotalArea[X12Cv13C == "C13" & Labeling == "Labeled"], na.rm = TRUE),
+              Ratio = ifelse(Area_12C != 0, Area_13C / Area_12C, NA)
+    )
+    )
+}
+```
+
+```{r}
+  plot <- ggplot(AprilData12Cv13CNormalized, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Labeled Fraction by LabelStatus"),
+      x = "Label Status",
+      y = "Labeled Fraction",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+    print(AprilData12Cv13CNormalized %>%
+            summarise(
+              Area_12C = median(TotalArea[X12Cv13C == "C12" & Labeling == "Labeled"], na.rm = TRUE),
+              Area_13C = median(TotalArea[X12Cv13C == "C13" & Labeling == "Labeled"], na.rm = TRUE),
+              Ratio = ifelse(Area_12C != 0, Area_13C / Area_12C, NA)
+    )
+    )
+
+```
+__________________________________
+
+Effect of vehicle
+__________________________________
+```{r}
+AprilDataVehNonNormalized <- AprilDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12","Veh")) %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'Succinate', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Organ, Dosage) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Organ %in% c("Plasma")) %>%
+  summarise(TotalArea = sum(Area), .groups = 'drop')
+
+AprilDataVehNormalized <- AprilDataWithNorm %>%
+  filter(X12Cv13C %in% c("C12","Veh")) %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'Succinate', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Organ, Dosage) %>%
+  filter(Labeling %in% c('Unlabeled')) %>%
+  filter(Organ %in% c("Plasma")) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop')
+
+```
+__________
+
+Non-normalized
+__________
+
+
+```{r}
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+
+
+plot <- ggplot(AprilDataVehNonNormalized, aes(x = Molecule, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = Molecule, group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 2, 
+                alpha = 0.65) +
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format",
+                       size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Labeled Fraction",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c("#87878a", 'transparent')) +
+  guides(fill = "none",color = guide_legend(title = "Molecule"),Timing = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+#    axis.text.x = element_blank(),
+#    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 20),  
+    legend.position = "none"      
+  )
+
+plot(plot)
+
+```
+
+
+```{r}
+MoleculeList <- c(unique(AprilDataVehNonNormalized$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- AprilDataVehNonNormalized[AprilDataVehNonNormalized$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Area by LabelStatus"),
+      x = "Label Status",
+      y = "Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+
+
+
+```{r}
+MoleculeList <- c(unique(AprilDataVehNonNormalized$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- AprilDataVehNonNormalized[AprilDataVehNonNormalized$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Area by LabelStatus"),
+      x = "Label Status",
+      y = "Area",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+
+
+```
+
+__________
+
+Normalized
+__________
+
+```{r}
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+
+
+plot <- ggplot(AprilDataVehNormalized, aes(x = Molecule, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = Molecule, group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 2, 
+                alpha = 0.65) +
+#    stat_compare_means(aes(group = X12Cv13C), method = "wilcox.test", label = "p.format",size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Labeled Fraction",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c("#87878a",'transparent')) +
+  guides(fill = "none",color = guide_legend(title = "Molecule"),Timing = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 20),  
+    legend.position = "none"      
+  )
+
+plot(plot)
+
+ggsave("NormalizedPlasmaVehicleEffects.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+```
+
+
+
+```{r}
+MoleculeList <- c(unique(AprilDataVehNormalized$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- AprilDataVehNormalized[AprilDataVehNormalized$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Labeled Fraction by LabelStatus"),
+      x = "Label Status",
+      y = "Labeled Fraction",
+      fill = "Label"
+    ) +
+    theme_minimal()
+    print(plot)
+}
+```
+
+__________________________________
+
+Blank Check
+__________________________________
+```{r}
+
+AprilDataBlankCheckNonNormalized <- AprilDataWithNorm %>%
+  filter(X12Cv13C %in% c("C13","Blank")) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C) %>%
+  summarise(TotalArea = sum(Area), .groups = 'drop')
+
+```
+__________
+
+Non-normalized
+__________
+
+```{r}
+MoleculeList <- "Glutamine"
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- AprilDataBlankCheckNonNormalized[AprilDataBlankCheckNonNormalized$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Labeling, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.2),
+                size = 1, alpha = 0.2) + # Add jittered points
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format") +
+    labs(
+      title = paste0("Boxplot of " , molecule, " Area by LabelStatus"),
+      x = "Label Status",
+      y = "Area",
+      fill = "Label"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 24),
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 18),        # Size for axis labels
+      axis.title.x = element_text(size = 24),
+      axis.title.y = element_text(size = 24)
+  )
+    print(plot)
+}
+
+ggsave("BlankCheck.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+
+```
+
+Exclude citrate, G6P, and succinate
+
+
+
+______________________________________________
+
+
+              Timing analysis
+
+
+______________________________________________
+
+Compare samples between Cohorts
+
+```{r}
+AprilvMay <- AprilMayWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'Succinate', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Dosage, Organ, Dosage_Organ, Timing, Cohort) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Dosage %in% c('4mg')) %>%
+  filter(Timing %in% c('90min')) %>%
+  filter(Organ %in% c('Plasma', "Heart"))
+```
+
+
+```{r}
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+plot <- ggplot(AprilvMay, aes(x = Organ, y = TotalArea, fill = as.factor(Cohort))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = as.factor(Molecule), group = Cohort),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1, 
+                alpha = 0.5) +
+    stat_compare_means(aes(group = Cohort), 
+                       method = "wilcox.test", 
+                       label = "p.format",
+                       size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Labeled Fraction",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_brewer(palette = "Pastel1") +
+  #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 14),        # Size for axis labels
+    legend.text = element_text(size = 16)       # Size for legend labels
+  )
+
+plot(plot)
+```
+
+
+
+
+
+
+Panel A - Comparing 15 minutes to 90 minutes
+
+
+15minute C12 vs C13
+
+
+```{r}
+AprilTiming15 <- AprilDataWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'Succinate', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Dosage, Organ, Dosage_Organ, Timing) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C12', 'C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Dosage %in% c('1mg','4mg')) %>%
+  filter(Timing %in% c('15min'))
+
+```
+
+```{r}
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+
+
+plot <- ggplot(AprilTiming15, aes(x = Dosage_Organ, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(X12Cv13C), group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1, 
+                alpha = 0.5) +
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format",
+                       size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Labeled Fraction",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_brewer(palette = "Pastel1") +
+  #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 14),        # Size for axis labels
+    legend.text = element_text(size = 16)       # Size for legend labels
+  )
+
+plot(plot)
+
+ggsave("15minC12vC13.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+```
+
+```{r}
+MoleculeList <- c(unique(AprilTiming15$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- AprilTiming15[AprilTiming15$Molecule == molecule,]
+  
+
+  plot <- ggplot(temp, aes(x = Dosage_Organ, y = TotalArea, fill = as.factor(X12Cv13C))) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+      geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(X12Cv13C), group = X12Cv13C),  # Ensure proper grouping
+                  position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                  size = 1, 
+                  alpha = 0.5) +
+      stat_compare_means(aes(group = X12Cv13C), 
+                         method = "wilcox.test", 
+                         label = "p.format",
+                         size = 5) +
+      labs(
+        x = "Dosage",
+        y = "Labeled Fraction",
+        color = "Molecule"
+      ) +
+    theme_set(theme_bw() + theme_custom) +
+    ylim(0,1.05) +
+    scale_color_brewer(palette = "Dark2") +  
+    scale_fill_brewer(palette = "Pastel1") +
+    #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+    theme(
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 14),        # Size for axis labels
+      legend.text = element_text(size = 16)       # Size for legend labels
+    )
+  print(plot)
+}
+```
+
+
+90minute C12 vs C13
+
+
+```{r}
+AprilTiming90 <- AprilDataWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'Succinate', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Dosage, Organ, Dosage_Organ, Timing) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C12', 'C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Organ %in% c('Plasma')) %>%
+  filter(Dosage %in% c('1mg','4mg')) %>%
+  filter(Timing %in% c('90min'))
+```
+
+```{r}
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+
+
+plot <- ggplot(AprilTiming90, aes(x = Dosage_Organ, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(X12Cv13C), group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1, 
+                alpha = 0.5) +
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format",
+                       size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Labeled Fraction",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_brewer(palette = "Pastel1") +
+  #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 14),        # Size for axis labels
+    legend.text = element_text(size = 16)       # Size for legend labels
+  )
+
+plot(plot)
+
+ggsave("90minC12vC13.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+```
+
+```{r}
+MoleculeList <- c(unique(AprilTiming90$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- AprilTiming90[AprilTiming90$Molecule == molecule,]
+  
+
+  plot <- ggplot(temp, aes(x = Dosage_Organ, y = TotalArea, fill = as.factor(X12Cv13C))) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+      geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(X12Cv13C), group = X12Cv13C),  # Ensure proper grouping
+                  position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                  size = 1, 
+                  alpha = 0.5) +
+      stat_compare_means(aes(group = X12Cv13C), 
+                         method = "t.test", 
+                         label = "p.format",
+                         size = 5) +
+      labs(
+        x = "Dosage",
+        y = "Labeled Fraction",
+        color = "Molecule"
+      ) +
+    theme_set(theme_bw() + theme_custom) +
+    ylim(0,1.05) +
+    scale_color_brewer(palette = "Dark2") +  
+    scale_fill_brewer(palette = "Pastel1") +
+    #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+    theme(
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 14),        # Size for axis labels
+      legend.text = element_text(size = 16)       # Size for legend labels
+    )
+  print(plot)
+}
+```
+
+
+Timing difference
+
+
+```{r}
+AprilTimingDiff <- AprilDataWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'Succinate', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Dosage, Organ, Dosage_Organ, Timing) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Organ %in% c("Plasma")) %>%
+  filter(Dosage %in% c('1mg','4mg')) 
+
+print(paste0("15min 1mg plasma p-value ", shapiro.test(AprilTimingDiff[AprilTimingDiff$Dosage_Organ == "1mg_Plasma" & AprilTimingDiff$Timing == "15min" ,]$TotalArea)$p.value))
+print(paste0("90min 1mg plasma p-value ", shapiro.test(AprilTimingDiff[AprilTimingDiff$Dosage_Organ == "1mg_Plasma" & AprilTimingDiff$Timing == "90min" ,]$TotalArea)$p.value))
+
+print(paste0("15min 4mg plasma p-value ", shapiro.test(AprilTimingDiff[AprilTimingDiff$Dosage_Organ == "4mg_Plasma" & AprilTimingDiff$Timing == "15min" ,]$TotalArea)$p.value))
+print(paste0("90min 4mg plasma p-value ", shapiro.test(AprilTimingDiff[AprilTimingDiff$Dosage_Organ == "4mg_Plasma" & AprilTimingDiff$Timing == "90min" ,]$TotalArea)$p.value))
+```
+
+```{r}
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+
+AprilTimingDiff
+plot <- ggplot(AprilTimingDiff, aes(x = Dosage_Organ, y = TotalArea, fill = as.factor(Timing))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = as.factor(Molecule), group = Timing),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.5),  
+                size = 3, 
+                alpha = 0.65) +
+    #stat_compare_means(aes(group = Timing), method = "t.test", label = "p.format",paired = TRUE,size = 5) +
+    labs(
+      y = "Labeled Fraction",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c('#fae314', "#faa614")) +
+  guides(fill = "none",color = guide_legend(title = "Molecule"),Timing = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 24),  
+    legend.position = "none"      
+  )
+
+plot(plot)
+
+ggsave("13CTimingDifferences.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+```
+
+```{r}
+MoleculeList <- c(unique(AprilTimingDiff$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- AprilTimingDiff[AprilTimingDiff$Molecule == molecule,]
+  
+
+  plot <- ggplot(temp, aes(x = Dosage_Organ, y = TotalArea, fill = as.factor(Timing))) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+      geom_jitter(aes(color = as.factor(Molecule), group = Timing),  # Ensure proper grouping
+                  position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                  size = 1, 
+                  alpha = 0.65) +
+      stat_compare_means(aes(group = Timing), 
+                         method = "wilcox.test", 
+                         label = "p.format",
+                         paired = TRUE,
+                         size = 5) +
+      labs(
+        x = "Dosage",
+        y = "Labeled Fraction",
+        color = "Molecule"
+      ) +
+    ylim(0,1.05) +
+    scale_color_brewer(palette = "Dark2") +  
+    scale_fill_brewer(palette = "Pastel1") +
+    #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+    theme(
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 14),        # Size for axis labels
+      legend.text = element_text(size = 16)       # Size for legend labels
+    )
+  print(temp %>%
+    group_by(Timing) %>%
+    summarise(
+      Area_1 = median(TotalArea[Dosage == "1mg"], na.rm = TRUE),
+      Area_4 = median(TotalArea[Dosage == "4mg"], na.rm = TRUE),
+      Ratio = ifelse(Area_4 != 0, Area_1 / Area_4, NA),
+      pval = wilcox.test(TotalArea[Dosage == "1mg"], TotalArea[Dosage == "4mg"])$p.value
+    )
+    )
+}
+```
+
+Panel B - Comparing plasma to facial bleed
+
+
+12Cv13C
+
+
+```{r}
+MayTiming12Cv13CFacial <- MayWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'Succinate', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Dosage, Organ, Dosage_Organ, Timing) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C12', 'C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Dosage %in% c('2point5mg','4mg')) %>%
+  filter(Timing %in% c('90min')) %>%
+  filter(!Organ %in% c("Heart"))
+
+print(paste0("12C facial bleed p-value ", shapiro.test(MayTiming12Cv13CFacial[MayTiming12Cv13CFacial$Dosage_Organ == "2point5mg_FacialBleed" & MayTiming12Cv13CFacial$X12Cv13C == "C12" ,]$TotalArea)$p.value))
+print(paste0("13C facial bleed p-value ", shapiro.test(MayTiming12Cv13CFacial[MayTiming12Cv13CFacial$Dosage_Organ == "2point5mg_FacialBleed" & MayTiming12Cv13CFacial$X12Cv13C == "C13" ,]$TotalArea)$p.value))
+
+print(paste0("12C facial bleed p-value ", shapiro.test(MayTiming12Cv13CFacial[MayTiming12Cv13CFacial$Dosage_Organ == "4mg_FacialBleed" & MayTiming12Cv13CFacial$X12Cv13C == "C12" ,]$TotalArea)$p.value))
+print(paste0("13C facial bleed p-value ", shapiro.test(MayTiming12Cv13CFacial[MayTiming12Cv13CFacial$Dosage_Organ == "4mg_FacialBleed" & MayTiming12Cv13CFacial$X12Cv13C == "C13" ,]$TotalArea)$p.value))
+
+print(paste0("12C facial bleed p-value ", shapiro.test(MayTiming12Cv13CFacial[MayTiming12Cv13CFacial$Dosage_Organ == "2point5mg_Plasma" & MayTiming12Cv13CFacial$X12Cv13C == "C12" ,]$TotalArea)$p.value))
+print(paste0("13C facial bleed p-value ", shapiro.test(MayTiming12Cv13CFacial[MayTiming12Cv13CFacial$Dosage_Organ == "2point5mg_Plasma" & MayTiming12Cv13CFacial$X12Cv13C == "C13" ,]$TotalArea)$p.value))
+
+print(paste0("12C facial bleed p-value ", shapiro.test(MayTiming12Cv13CFacial[MayTiming12Cv13CFacial$Dosage_Organ == "4mg_Plasma" & MayTiming12Cv13CFacial$X12Cv13C == "C12" ,]$TotalArea)$p.value))
+print(paste0("13C facial bleed p-value ", shapiro.test(MayTiming12Cv13CFacial[MayTiming12Cv13CFacial$Dosage_Organ == "4mg_Plasma" & MayTiming12Cv13CFacial$X12Cv13C == "C13" ,]$TotalArea)$p.value))
+```
+
+```{r}
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+plot <- ggplot(MayTiming12Cv13CFacial, aes(x = Dosage_Organ, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = as.factor(Molecule), group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1, 
+                alpha = 0.5) +
+    stat_compare_means(aes(group = X12Cv13C), 
+                       method = "wilcox.test", 
+                       label = "p.format",
+                       size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Labeled Fraction",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_brewer(palette = "Pastel1") +
+  guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 14),        # Size for axis labels
+    legend.text = element_text(size = 16)       # Size for legend labels
+  )
+
+plot(plot)
+
+```
+
+```{r}
+MoleculeList <- c(unique(MayTiming12Cv13CFacial$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- MayTiming12Cv13CFacial[MayTiming12Cv13CFacial$Molecule == molecule,]
+
+
+  plot <- ggplot(temp, aes(x = Dosage_Organ, y = TotalArea, fill = as.factor(X12Cv13C))) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+      geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(X12Cv13C), group = X12Cv13C),  # Ensure proper grouping
+                  position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                  size = 1, 
+                  alpha = 0.5) +
+      stat_compare_means(aes(group = X12Cv13C), 
+                         method = "wilcox.test", 
+                         label = "p.format",
+                         size = 5) +
+      labs(
+        x = "Dosage",
+        y = "Labeled Fraction",
+        color = "Molecule"
+      ) +
+    theme_set(theme_bw() + theme_custom) +
+    ylim(0,1.05) +
+    scale_color_brewer(palette = "Dark2") +  
+    scale_fill_brewer(palette = "Pastel1") +
+    guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+    theme(
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 14),        # Size for axis labels
+      legend.text = element_text(size = 16)       # Size for legend labels
+    )
+  print(plot)
+}
+```
+
+
+
+Bleed difference
+
+
+```{r}
+MayBleedDiff <- MayWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'Succinate', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Dosage, Organ, Dosage_Organ, Timing) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Dosage %in% c('2point5mg','4mg')) %>%
+  filter(Timing %in% c('90min')) %>%
+  filter(!Organ %in% c("Heart"))
+
+print(paste0("2.5mg facial bleed p-value ", shapiro.test(MayBleedDiff[MayBleedDiff$Dosage_Organ == "2point5mg_FacialBleed" & MayBleedDiff$X12Cv13C == "C13" ,]$TotalArea)$p.value))
+
+print(paste0("4mg facial bleed p-value ", shapiro.test(MayBleedDiff[MayBleedDiff$Dosage_Organ == "4mg_FacialBleed" & MayBleedDiff$X12Cv13C == "C13" ,]$TotalArea)$p.value))
+
+print(paste0("2.5mg plasma p-value ", shapiro.test(MayBleedDiff[MayBleedDiff$Dosage_Organ == "2point5mg_Plasma" & MayBleedDiff$X12Cv13C == "C13" ,]$TotalArea)$p.value))
+
+print(paste0("4mg plasma p-value ", shapiro.test(MayBleedDiff[MayBleedDiff$Dosage_Organ == "4mg_Plasma" & MayBleedDiff$X12Cv13C == "C13" ,]$TotalArea)$p.value))
+```
+
+```{r}
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+plot <- ggplot(MayBleedDiff, aes(x = Dosage, y = TotalArea, fill = as.factor(Organ))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = as.factor(Molecule), group = Organ),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.5),  
+                size = 3, 
+                alpha = 0.65) +
+    #stat_compare_means(aes(group = Organ), method = "wilcox.test", label = "p.format", size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Labeled Fraction",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c('#d918c5', "#ff2121")) +
+  guides(fill = "none",color = guide_legend(title = "Molecule"),Timing = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 24),  
+    legend.position = "none"      
+  )
+
+
+plot(plot)
+
+ggsave("BleedDifferences.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+
+```
+
+```{r}
+MoleculeList <- c(unique(MayBleedDiff$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- MayBleedDiff[MayBleedDiff$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Dosage_Organ, y = TotalArea, fill = as.factor(Organ))) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+      geom_jitter(aes(color = as.factor(Molecule), group = Organ),  # Ensure proper grouping
+                  position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                  size = 1, 
+                  alpha = 0.5) +
+      stat_compare_means(aes(group = Organ), 
+                         method = "t.test", 
+                         label = "p.format",
+                         size = 5) +
+      labs(
+        x = "Dosage",
+        y = "Labeled Fraction",
+        color = "Molecule"
+      ) +
+    ylim(0,1.05) +
+    scale_color_brewer(palette = "Dark2") +  
+    scale_fill_brewer(palette = "Pastel1") +
+    guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+    theme(
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 14),        # Size for axis labels
+      legend.text = element_text(size = 16)       # Size for legend labels
+    )
+  print(plot)
+    print(temp %>%
+    group_by(Dosage) %>%
+    summarise(
+      Area_Facial = median(TotalArea[Organ == "FacialBleed"], na.rm = TRUE),
+      Area_Plasma = median(TotalArea[Organ == "Plasma"], na.rm = TRUE),
+      Ratio = ifelse(Area_Plasma != 0, Area_Facial / Area_Plasma, NA),
+      pval = wilcox.test(TotalArea[Organ == "FacialBleed"], TotalArea[Organ == "Plasma"])$p.value
+    )
+    )
+}
+```
+
+
+
+
+
+Panel C - Comapring 12C labeled vs 13C labeled
+
+```{r}
+AprilMayWithNormAdjusted <- AprilMayWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'Succinate', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Dosage, Organ, Dosage_Organ, Timing, Cohort) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C12', 'C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Organ %in% c('Heart', 'Plasma')) %>%
+  filter(Timing %in% c('90min'))
+
+AprilWithNormAdjusted <- AprilMayWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'Succinate', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Dosage, Organ, Dosage_Organ, Timing, Cohort) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C12', 'C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Organ %in% c('Heart', 'Plasma')) %>%
+  filter(Timing %in% c('90min')) %>%
+  filter(Cohort %in% c('April'))
+
+MayWithNormAdjusted <- AprilMayWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'Succinate', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Dosage, Organ, Dosage_Organ, Timing, Cohort) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C12', 'C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Organ %in% c('Heart', 'Plasma')) %>%
+  filter(Timing %in% c('90min')) %>%
+  filter(Cohort %in% c('May'))
+```
+
+April
+```{r}
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+
+
+plot <- ggplot(AprilWithNormAdjusted, aes(x = Dosage_Organ, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(X12Cv13C), group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.5),  
+                size = 3, 
+                alpha = 0.65) +
+    #stat_compare_means(aes(group = X12Cv13C), method = "wilcox.test", label = "p.format",size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Labeled Fraction",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c('#87878a', "#9485f2")) +
+  guides(fill = "none",color = guide_legend(title = "Molecule"),Timing = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 24),  
+    legend.position = "none"      
+  )
+
+
+print(plot)
+
+ggsave("AprilC13Comparisons.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+```
+```{r}
+MoleculeList <- c(unique(MayWithNormAdjusted$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- MayWithNormAdjusted[MayWithNormAdjusted$Molecule == molecule,]
+
+  plot <- ggplot(temp, aes(x = Dosage, y = TotalArea, fill = as.factor(Organ))) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+      geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(Organ), group = Organ),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.5),  
+                size = 3, 
+                alpha = 0.65) +
+      stat_compare_means(aes(group = Organ), 
+                         method = "wilcox.test", 
+                         label = "p.format",
+                         size = 5) +
+      labs(
+        x = "Dosage",
+        y = "Labeled Fraction",
+        color = "Molecule"
+      ) +
+    ylim(0,1.05) +
+    scale_color_brewer(palette = "Dark2") +  
+    scale_fill_brewer(palette = "Pastel1") +
+    #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+    theme(
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 14),        # Size for axis labels
+      legend.text = element_text(size = 16)       # Size for legend labels
+    )
+  print(plot)
+    print(temp %>%
+    group_by(Dosage_Organ) %>%
+    summarise(
+      Area_Labeled = median(TotalArea[X12Cv13C == "C13"], na.rm = TRUE),
+      Area_Unlabeled = median(TotalArea[X12Cv13C == "C12"], na.rm = TRUE),
+      Ratio = ifelse(Area_Unlabeled != 0, Area_Labeled / Area_Unlabeled, NA)
+    )
+    )
+}
+```
+
+
+
+
+
+May 
+```{r}
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+
+
+plot <- ggplot(MayWithNormAdjusted, aes(x = Dosage_Organ, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(X12Cv13C), group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.5),  
+                size = 3, 
+                alpha = 0.65) +
+    #stat_compare_means(aes(group = X12Cv13C), method = "wilcox.test", label = "p.format",size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Labeled Fraction",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c('#87878a', "#9485f2")) +
+  guides(fill = "none",color = guide_legend(title = "Molecule"),Timing = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 24),  
+    legend.position = "none"      
+  )
+
+
+print(plot)
+
+ggsave("MayC13Comparisons.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+```
+
+
+
+```{r}
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+
+
+plot <- ggplot(AprilMayWithNormAdjusted, aes(x = Dosage_Organ, y = TotalArea, fill = as.factor(X12Cv13C))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(X12Cv13C), group = X12Cv13C),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 2, 
+                alpha = 0.65) +
+    #stat_compare_means(aes(group = X12Cv13C), method = "wilcox.test", label = "p.format",size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Labeled Fraction",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_manual(values = c('#87878a', "#9485f2")) +
+  guides(fill = "none",color = guide_legend(title = "Molecule"),Timing = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 18),        # Size for axis labels
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hides x-axis label
+    axis.title.y = element_text(size = 20),  
+    legend.position = "none"      
+  )
+
+
+print(plot)
+
+ggsave("C13Comparisons.png",
+       width = 10,
+       height = 7,
+       units = "in",
+       dpi = 600)
+```
+
+Panel D - Comparing Heart to Plasma
+
+12Cv13C
+
+
+```{r}
+TempAprilMayWithNorm <-  AprilMayWithNorm[!(AprilMayWithNorm$Cohort == "April" & AprilMayWithNorm$Dosage == "4mg"), ]
+
+AprilMayTimingOrgan <- TempAprilMayWithNorm %>%
+  filter(!Molecule %in% c('G6P', 'Citrate', 'Succinate', 'F6P')) %>%
+  group_by(Replicate.Name, Labeling, Molecule, X12Cv13C, Dosage, Organ, Dosage_Organ, Timing) %>%
+  summarise(TotalArea = sum(NormalizedArea), .groups = 'drop') %>%
+  filter(X12Cv13C %in% c('C13')) %>%
+  filter(!Labeling %in% c('Unlabeled')) %>%
+  filter(Timing %in% c('90min')) %>%
+  filter(Organ %in% c("Heart", "Plasma"))
+
+print(paste0("13C plasma p-value ", shapiro.test(AprilMayTimingOrgan[AprilMayTimingOrgan$Dosage_Organ == "1mg_Plasma",]$TotalArea)$p.value))
+
+print(paste0("13C plasma p-value ", shapiro.test(AprilMayTimingOrgan[AprilMayTimingOrgan$Dosage_Organ == "2point5mg_Plasma",]$TotalArea)$p.value))
+
+print(paste0("13C plasma p-value ", shapiro.test(AprilMayTimingOrgan[AprilMayTimingOrgan$Dosage_Organ == "4mg_Plasma",]$TotalArea)$p.value))
+
+print(paste0("13C heart p-value ", shapiro.test(AprilMayTimingOrgan[AprilMayTimingOrgan$Dosage_Organ == "1mg_Heart",]$TotalArea)$p.value))
+
+print(paste0("13C heart p-value ", shapiro.test(AprilMayTimingOrgan[AprilMayTimingOrgan$Dosage_Organ == "2point5mg_Heart",]$TotalArea)$p.value))
+
+print(paste0("13C heart p-value ", shapiro.test(AprilMayTimingOrgan[AprilMayTimingOrgan$Dosage_Organ == "4mg_Heart",]$TotalArea)$p.value))
+```
+
+
+```{r}
+
+
+theme_custom <- theme(text = element_text(size = 12),
+                      panel.grid = element_blank(),
+                      panel.grid.major.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      panel.grid.minor.y = element_line(colour = "#8f8d8d", linetype = 2),
+                      plot.title.position = 'plot',
+                      legend.position = 'top',
+)
+
+plot <- ggplot(AprilMayTimingOrgan, aes(x = Dosage, y = TotalArea, fill = as.factor(Organ))) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+    geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(Organ), group = Organ),  # Ensure proper grouping
+                position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                size = 1, 
+                alpha = 0.5) +
+    stat_compare_means(aes(group = Organ), 
+                       method = "wilcox.test", 
+                       label = "p.format",
+                       size = 5) +
+    labs(
+      x = "Dosage",
+      y = "Labeled Fraction",
+      color = "Molecule"
+    ) +
+  theme_set(theme_bw() + theme_custom) +
+  ylim(0,1.05) +
+  scale_color_brewer(palette = "Dark2") +  
+  scale_fill_brewer(palette = "Pastel1") +
+  #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+  theme(
+    axis.title = element_text(size = 14),       # Size for axis titles
+    axis.text = element_text(size = 14),        # Size for axis labels
+    legend.text = element_text(size = 16)       # Size for legend labels
+  )
+
+plot(plot)
+
+```
+
+```{r}
+MoleculeList <- c(unique(AprilMayTimingOrgan$Molecule))
+for (molecule in MoleculeList){
+  print(molecule)
+  temp <- AprilMayTimingOrgan[AprilMayTimingOrgan$Molecule == molecule,]
+  
+  plot <- ggplot(temp, aes(x = Dosage, y = TotalArea, fill = as.factor(Organ))) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Dodge boxplots by X12Cv13C
+      geom_jitter(aes(color = as.factor(Molecule), fill = as.factor(Organ), group = Organ),  # Ensure proper grouping
+                  position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.2),  
+                  size = 1, 
+                  alpha = 0.5) +
+      stat_compare_means(aes(group = Organ), 
+                         method = "wilcox.test", 
+                         label = "p.format",
+                         size = 5) +
+      labs(
+        x = "Dosage",
+        y = "Labeled Fraction",
+        color = "Molecule"
+      ) +
+    theme_set(theme_bw() + theme_custom) +
+    ylim(0,1.05) +
+    scale_color_brewer(palette = "Dark2") +  
+    scale_fill_brewer(palette = "Pastel1") +
+    #guides(fill = "none",color = guide_legend(title = "Molecule"),X12Cv13C = "none")  +
+    theme(
+      axis.title = element_text(size = 14),       # Size for axis titles
+      axis.text = element_text(size = 14),        # Size for axis labels
+      legend.text = element_text(size = 16)       # Size for legend labels
+    )
+  print(plot)
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
